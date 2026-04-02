@@ -1,5 +1,7 @@
 package com.liveklass.notification.domain.outbox;
 
-public interface NotificationOutboxRepository {
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface NotificationOutboxRepository extends JpaRepository<NotificationOutbox, Long> {
 
 }
