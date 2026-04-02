@@ -1,0 +1,48 @@
+services:
+  # 1. MySQL: 알림 데이터 및 Outbox 테이블 저장
+  mysql:
+    image: mysql:8.0
+    container_name: liveklass-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_DATABASE: liveklass_noti
+      MYSQL_ROOT_PASSWORD: root
+      TZ: Asia/Seoul
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    volumes:
+      - ./docker/mysql/data:/var/lib/mysql
+    networks:
+      - liveklass-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 5s
+      retries: 10
+
+  # 2. Redis: 비동기 메시지 브로커 (Streams)
+  redis:
+    image: redis:7.2-alpine
+    container_name: liveklass-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes # 데이터 영속성 활성화
+    volumes:
+      - ./docker/redis/data:/data
+    networks:
+      - liveklass-network
+
+  # 3. Redis Insight: Streams와 Consumer Group 상태를 GUI로 확인
+  redis-insight:
+    image: redislabs/redisinsight:latest
+    container_name: liveklass-redis-insight
+    ports:
+      - "5540:5540"
+    networks:
+      - liveklass-network
+
+networks:
+  liveklass-network:
+    driver: bridge
