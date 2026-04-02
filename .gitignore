@@ -36,6 +36,9 @@ out/
 ### VS Code ###
 .vscode/
 
+# QueryDSL generated Q classes
+src/main/generated/
+
 # Docker data directories
-./docker/mysql/data
-./data/
+docker/mysql/data
+data/
