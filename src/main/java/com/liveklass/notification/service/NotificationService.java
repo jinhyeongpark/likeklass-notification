@@ -72,8 +72,8 @@ public class NotificationService {
                 }
             }
 
-            // 템플릿도 없고 content도 없으면 발송 불가
-            if (content == null || content.isBlank()) {
+            // 템플릿도 없고, 내용(title/content) 중 하나라도 비어있으면 발송 불가
+            if (title == null || title.isBlank() || content == null || content.isBlank()) {
                 throw new CustomException(ErrorCode.NOTIFICATION_CONTENT_REQUIRED);
             }
 
