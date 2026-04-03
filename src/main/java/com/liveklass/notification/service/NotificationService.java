@@ -7,6 +7,7 @@ import com.liveklass.notification.domain.outbox.NotificationOutbox;
 import com.liveklass.notification.domain.outbox.NotificationOutboxRepository;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,6 +17,7 @@ public class NotificationService {
 
     private final NotificationRepository notificationRepository;
     private final OutboxService outboxService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public Long requestNotification(NotificationRequestDto request) {
@@ -31,9 +33,11 @@ public class NotificationService {
         notificationRepository.save(notification);
 
         // 2. Outbox 생성 위임
-        outboxService.create(notification.getId());
+        Long outboxId = outboxService.create(notification.getId(), notification.getType());
 
-        return notification.getId(); // 생성된 알림 ID 반환 (응답용)
+        eventPublisher.publishEvent(new NotificationCreatedEvent(outboxId));
+
+        return notification.getId();
     }
 
 }

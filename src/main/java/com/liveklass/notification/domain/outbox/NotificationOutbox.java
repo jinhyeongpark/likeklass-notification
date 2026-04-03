@@ -1,20 +1,9 @@
 package com.liveklass.notification.domain.outbox;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Index;
-import jakarta.persistence.Table;
+import com.liveklass.notification.domain.notification.NotificationType;
+import jakarta.persistence.*;
 import java.time.LocalDateTime;
-import lombok.AccessLevel;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 @Entity
 @Table(name = "notification_outbox", indexes = {
@@ -26,13 +15,16 @@ import lombok.NoArgsConstructor;
 @Builder
 public class NotificationOutbox {
 
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
-    private Long notificationId; // 연관된 Notification의 ID
+    @Column(nullable = false, unique = true) // 사용자의 중복 생성을 방지
+    private Long notificationId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    private NotificationType type;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -40,14 +32,14 @@ public class NotificationOutbox {
     private OutboxStatus status = OutboxStatus.INIT;
 
     @Builder.Default
-    private Integer retryCount = 0; // 현재까지의 재시도 횟수
+    private Integer retryCount = 0;
 
     @Column(columnDefinition = "TEXT")
-    private String lastError; // 실패 사유 기록
+    private String lastError;
 
-    private LocalDateTime nextRetryAt; // 다음 재시도 가능 시간 (지수 백오프용)
+    private LocalDateTime nextRetryAt;
 
-    private LocalDateTime lockedAt; // 처리 시작 시간 (타임아웃 복구용)
+    private LocalDateTime lockedAt;
 
     public void startProcessing() {
         this.status = OutboxStatus.PROCESSING;
@@ -56,19 +48,40 @@ public class NotificationOutbox {
 
     public void complete() {
         this.status = OutboxStatus.COMPLETED;
-        this.lockedAt = null; // 락 해제
+        this.lockedAt = null;
     }
 
     public void fail(String errorMessage, int maxRetryCount) {
-        this.lastError = errorMessage;
+        this.lastError = (errorMessage != null && errorMessage.length() > 500)
+            ? errorMessage.substring(0, 497) + "..."
+            : errorMessage;
         this.lockedAt = null;
 
         if (this.retryCount < maxRetryCount) {
             this.retryCount++;
-            this.status = OutboxStatus.INIT; // 다시 INIT으로 돌려 스케줄러가 잡게 함
-            this.nextRetryAt = LocalDateTime.now().plusMinutes((long) Math.pow(2, retryCount));
+            this.status = OutboxStatus.INIT;
+
+            this.nextRetryAt = calculateNextRetryTime();
         } else {
-            this.status = OutboxStatus.FAILED; // 최대 재시도 횟수 초과 시 최종 실패
+            this.status = OutboxStatus.FAILED;
         }
+    }
+
+    private LocalDateTime calculateNextRetryTime() {
+        LocalDateTime now = LocalDateTime.now();
+
+        // 첫 번째 실패는 네트워크 일시 장애일 확률이 높으므로 10초 뒤 즉시 재시도
+        if (this.retryCount == 1) {
+            return now.plusSeconds(10);
+        }
+
+        // 결제 완료 알림은 30초 단위 선형 증가 (공격적 재시도)
+        if (this.type == NotificationType.PAYMENT_CONFIRMED) {
+            if (this.retryCount == 2) return now.plusSeconds(30); // 2차: 30초
+            return now.plusSeconds(60); // 3차 이상: 60초
+        }
+
+        // 일반 알림은 기존 지수 백오프 (2분, 4분, 8분...)
+        return now.plusMinutes((long) Math.pow(2, this.retryCount));
     }
 }
