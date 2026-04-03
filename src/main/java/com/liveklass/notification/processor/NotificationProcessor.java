@@ -3,7 +3,6 @@ package com.liveklass.notification.processor;
 import com.liveklass.notification.domain.outbox.NotificationOutbox;
 import com.liveklass.notification.domain.outbox.NotificationOutboxQueryRepository;
 import com.liveklass.notification.service.OutboxService;
-import java.time.LocalDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,7 +21,7 @@ public class NotificationProcessor {
     @Scheduled(fixedDelay = 60000)
     @Transactional // 💡
     public void process() {
-        List<NotificationOutbox> tasks = queryRepository.findPendingTasks(LocalDateTime.now(), 10);
+        List<NotificationOutbox> tasks = queryRepository.findPendingTasks(10);
 
         if (tasks.isEmpty()) return;
 

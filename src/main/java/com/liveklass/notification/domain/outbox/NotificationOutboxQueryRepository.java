@@ -3,6 +3,7 @@ package com.liveklass.notification.domain.outbox;
 import static com.liveklass.notification.domain.outbox.QNotificationOutbox.notificationOutbox;
 
 import com.querydsl.core.types.dsl.BooleanExpression;
+import com.querydsl.core.types.dsl.DateTimeExpression;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
@@ -16,12 +17,12 @@ public class NotificationOutboxQueryRepository {
 
     private final JPAQueryFactory queryFactory;
 
-    public List<NotificationOutbox> findPendingTasks(LocalDateTime now, int limit) {
+    public List<NotificationOutbox> findPendingTasks(int limit) {
         return queryFactory
             .selectFrom(notificationOutbox)
             .where(
                 statusEq(OutboxStatus.INIT),      // 대기 상태인 것만
-                isTimeToSend(now)                 // 지금 보내야 할 시간인 것만
+                isTimeToSend()                 // 지금 보내야 할 시간인 것만
             )
             .orderBy(notificationOutbox.nextRetryAt.asc())
             .limit(limit)
@@ -34,8 +35,8 @@ public class NotificationOutboxQueryRepository {
         return status != null ? notificationOutbox.status.eq(status) : null;
     }
 
-    private BooleanExpression isTimeToSend(LocalDateTime now) {
-        return notificationOutbox.nextRetryAt.loe(now);
+    private BooleanExpression isTimeToSend() {
+        return notificationOutbox.nextRetryAt.loe(DateTimeExpression.currentTimestamp(LocalDateTime.class));
     }
 
 }
