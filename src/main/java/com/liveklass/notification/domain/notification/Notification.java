@@ -84,4 +84,8 @@ public class Notification {
     public void markAsFailed() {
         this.status = NotificationStatus.FAILED;
     }
+
+    public void revertToSent() {
+        this.status = NotificationStatus.SENT;
+    }
 }
