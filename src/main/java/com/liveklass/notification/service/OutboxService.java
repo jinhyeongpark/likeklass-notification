@@ -5,6 +5,7 @@ import com.liveklass.notification.common.exception.ErrorCode;
 import com.liveklass.notification.domain.notification.Notification;
 import com.liveklass.notification.domain.notification.NotificationRepository;
 import com.liveklass.notification.domain.notification.NotificationSender;
+import com.liveklass.notification.domain.notification.NotificationType;
 import com.liveklass.notification.domain.outbox.NotificationOutbox;
 import com.liveklass.notification.domain.outbox.NotificationOutboxRepository;
 import com.liveklass.notification.domain.outbox.OutboxStatus;
@@ -25,9 +26,10 @@ public class OutboxService {
     private final NotificationRepository notificationRepository;
 
     @Transactional
-    public Long create(Long notificationId) {
+    public Long create(Long notificationId, NotificationType type) {
         NotificationOutbox outbox = NotificationOutbox.builder()
             .notificationId(notificationId)
+            .type(type)
             .status(OutboxStatus.INIT)
             .nextRetryAt(LocalDateTime.now())
             .build();

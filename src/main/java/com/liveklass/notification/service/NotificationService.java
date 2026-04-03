@@ -33,7 +33,7 @@ public class NotificationService {
         notificationRepository.save(notification);
 
         // 2. Outbox 생성 위임
-        Long outboxId = outboxService.create(notification.getId());
+        Long outboxId = outboxService.create(notification.getId(), notification.getType());
 
         eventPublisher.publishEvent(new NotificationCreatedEvent(outboxId));
 
