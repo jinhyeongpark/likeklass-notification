@@ -19,7 +19,7 @@ public class NotificationOutbox {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(nullable = false, unique = true) // 사용자의 중복 생성을 방지
     private Long notificationId;
 
     @Enumerated(EnumType.STRING)
@@ -52,7 +52,9 @@ public class NotificationOutbox {
     }
 
     public void fail(String errorMessage, int maxRetryCount) {
-        this.lastError = errorMessage;
+        this.lastError = (errorMessage != null && errorMessage.length() > 500)
+            ? errorMessage.substring(0, 497) + "..."
+            : errorMessage;
         this.lockedAt = null;
 
         if (this.retryCount < maxRetryCount) {
@@ -75,10 +77,11 @@ public class NotificationOutbox {
 
         // 결제 완료 알림은 30초 단위 선형 증가 (공격적 재시도)
         if (this.type == NotificationType.PAYMENT_CONFIRMED) {
-            return now.plusSeconds(30L * this.retryCount);
+            if (this.retryCount == 2) return now.plusSeconds(30); // 2차: 30초
+            return now.plusSeconds(60); // 3차 이상: 60초
         }
 
-        //  일반 알림은 기존 지수 백오프 (2분, 4분, 8분...)
+        // 일반 알림은 기존 지수 백오프 (2분, 4분, 8분...)
         return now.plusMinutes((long) Math.pow(2, this.retryCount));
     }
 }
