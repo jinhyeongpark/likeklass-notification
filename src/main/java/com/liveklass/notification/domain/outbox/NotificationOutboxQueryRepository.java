@@ -2,6 +2,9 @@ package com.liveklass.notification.domain.outbox;
 
 import static com.liveklass.notification.domain.outbox.QNotificationOutbox.notificationOutbox;
 
+import com.liveklass.notification.api.dto.FailedNotificationResponse;
+import com.liveklass.notification.domain.notification.QNotification;
+import com.querydsl.core.types.Projections;
 import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.core.types.dsl.DateTimeExpression;
 import com.querydsl.jpa.impl.JPAQueryFactory;
@@ -39,13 +42,13 @@ public class NotificationOutboxQueryRepository {
         return notificationOutbox.nextRetryAt.loe(DateTimeExpression.currentTimestamp(LocalDateTime.class));
     }
 
-    public List<com.liveklass.notification.api.dto.FailedNotificationResponse> findFailedNotifications(int limit) {
-        com.liveklass.notification.domain.notification.QNotification notification = 
-            com.liveklass.notification.domain.notification.QNotification.notification;
+    public List<FailedNotificationResponse> findFailedNotifications(int limit) {
+        QNotification notification =
+            QNotification.notification;
 
         return queryFactory
-            .select(com.querydsl.core.types.Projections.constructor(
-                com.liveklass.notification.api.dto.FailedNotificationResponse.class,
+            .select(Projections.constructor(
+                FailedNotificationResponse.class,
                 notification.id,
                 notification.receiverId,
                 notification.type,
