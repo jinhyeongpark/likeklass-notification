@@ -64,6 +64,7 @@ public class NotificationService {
 
             if (templateOpt.isPresent()) {
                 NotificationTemplate template = templateOpt.get();
+                template.validateReferenceData(request.referenceData());
                 if (title == null || title.isBlank()) {
                     title = template.resolveTitle(request.referenceData());
                 }
