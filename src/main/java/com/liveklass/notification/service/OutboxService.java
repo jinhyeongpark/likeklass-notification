@@ -69,6 +69,13 @@ public class OutboxService {
         try {
             outbox.startProcessing();
 
+            // 읽음 시 발송 생략 정책 정책
+            if (Boolean.TRUE.equals(notification.getIsRead())) {
+                outbox.complete();
+                log.info("[Outbox] 이미 읽은 알림이므로 발송 스킵. notificationId={}", notification.getId());
+                return;
+            }
+
             NotificationSender sender = senderMap.get(notification.getChannel());
             if (sender == null) {
                 throw new IllegalStateException("지원하지 않는 발송 채널: " + notification.getChannel());
@@ -84,9 +91,9 @@ public class OutboxService {
             outbox.fail(e.getMessage(), 3);
 
             // 최종 실패 시 Notification도 FAILED 처리
-            if (outbox.getStatus() == OutboxStatus.FAILED) {
+            if (outbox.getStatus() == OutboxStatus.FAILED || outbox.getStatus() == OutboxStatus.EXPIRED) {
                 notification.markAsFailed();
-                log.warn("[Outbox] 최종 실패 처리. notificationId={}", notification.getId());
+                log.warn("[Outbox] 발송 중지 처리 (상태: {}). notificationId={}", outbox.getStatus(), notification.getId());
             }
         }
     }

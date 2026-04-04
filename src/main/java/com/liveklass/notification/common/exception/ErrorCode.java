@@ -24,7 +24,7 @@ public enum ErrorCode {
     TEMPLATE_ALREADY_EXISTS(HttpStatus.CONFLICT, "TMPL-409", "동일 타입+채널 조합의 템플릿이 이미 존재합니다."),
 
     // ===================== 422 Unprocessable Entity =====================
-    NOTIFICATION_CONTENT_REQUIRED(HttpStatus.UNPROCESSABLE_ENTITY, "NOTI-422", "알림 본문이 비어 있고, 해당 타입+채널 조합의 템플릿도 등록되어 있지 않습니다."),
+    NOTIFICATION_CONTENT_REQUIRED(HttpStatus.UNPROCESSABLE_ENTITY, "NOTI-422", "알림 제목 또는 본문이 비어 있고, 해당 타입+채널 조합의 템플릿도 등록되어 있지 않습니다."),
 
     // ===================== 500 Internal Server Error =====================
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "COMMON-500", "서버 내부 오류가 발생했습니다."),

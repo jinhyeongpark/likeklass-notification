@@ -41,6 +41,10 @@ public class NotificationOutbox {
 
     private LocalDateTime lockedAt;
 
+    @Column(updatable = false)
+    @Builder.Default
+    private LocalDateTime createdAt = LocalDateTime.now();
+
     public void startProcessing() {
         this.status = OutboxStatus.PROCESSING;
         this.lockedAt = LocalDateTime.now();
@@ -56,6 +60,15 @@ public class NotificationOutbox {
             ? errorMessage.substring(0, 497) + "..."
             : errorMessage;
         this.lockedAt = null;
+
+        // [TTL 기반 폐기 정책] 결제 완료 알림은 10분 지연 시 폐기 처리 (EXPIRED)
+        if (this.type == NotificationType.PAYMENT_CONFIRMED) {
+            if (this.createdAt != null && this.createdAt.plusMinutes(10).isBefore(LocalDateTime.now())) {
+                this.status = OutboxStatus.EXPIRED;
+                this.lastError = "[EXPIRED] 10분 초과로 폐기됨: " + this.lastError;
+                return;
+            }
+        }
 
         if (this.retryCount < maxRetryCount) {
             this.retryCount++;
@@ -83,5 +96,12 @@ public class NotificationOutbox {
 
         // 일반 알림은 기존 지수 백오프 (2분, 4분, 8분...)
         return now.plusMinutes((long) Math.pow(2, this.retryCount));
+    }
+
+    public void manualRetry() {
+        this.status = OutboxStatus.INIT;
+        this.retryCount = 0;
+        this.lastError = null;
+        this.nextRetryAt = LocalDateTime.now();
     }
 }

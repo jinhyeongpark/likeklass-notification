@@ -24,20 +24,33 @@ public class NotificationProcessor {
     private final NotificationIdempotencyRepository idempotencyRepository;
 
     @Scheduled(fixedDelay = 60000)
-    @Transactional // 💡
+    @Transactional
     public void process() {
-        List<NotificationOutbox> tasks = queryRepository.findPendingTasks(10);
+        int maxLoopCount = 10; // 1분에 최대 50 * 10 = 500건
+        int processedTotal = 0;
 
-        if (tasks.isEmpty()) return;
+        while (maxLoopCount-- > 0) {
+            List<NotificationOutbox> tasks = queryRepository.findPendingTasks(50);
 
-        log.info(">>>> [Worker] {}건의 알림을 낚아챘습니다.", tasks.size());
-
-        for (NotificationOutbox task : tasks) {
-            try {
-                outboxService.process(task.getId());
-            } catch (Exception e) {
-                log.error("Worker 작업 중 예기치 못한 에러 발생: {}", e.getMessage());
+            if (tasks.isEmpty()) {
+                break;
             }
+
+            log.info(">>>> [Worker] {}건의 알림을 낚아챘습니다. (잔여 루프 횟수: {})", tasks.size(), maxLoopCount);
+
+            for (NotificationOutbox task : tasks) {
+                try {
+                    outboxService.process(task.getId());
+                } catch (Exception e) {
+                    log.error("Worker 작업 중 예기치 못한 에러 발생: {}", e.getMessage());
+                }
+            }
+            
+            processedTotal += tasks.size();
+        }
+
+        if (processedTotal > 0) {
+            log.info("==== [Worker] 이번 1분 주기 동안 총 {}건의 밀린 알림을 해소했습니다! ====", processedTotal);
         }
     }
 

@@ -1,22 +1,11 @@
 spring:
   application:
     name: notification-service
-
-springdoc:
-  swagger-ui:
-    path: /swagger-ui.html
-  api-docs:
-    path: /v3/api-docs
-  default-consumes-media-type: application/json
-  default-produces-media-type: application/json
-  override-with-generic-response: false  # ApiResponse<T> 제네릭 타입 resolve 오류 방지
-
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/notification?serverTimezone=Asia/Seoul&characterEncoding=UTF-8}
     username: ${SPRING_DATASOURCE_USERNAME:user}
     password: ${SPRING_DATASOURCE_PASSWORD:password}
     driver-class-name: com.mysql.cj.jdbc.Driver
-
   jpa:
     database-platform: org.hibernate.dialect.MySQLDialect
     hibernate:
@@ -26,3 +15,12 @@ springdoc:
       hibernate:
         format_sql: true
         default_batch_fetch_size: 100 # N+1 문제 방지 최적화
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+  default-consumes-media-type: application/json
+  default-produces-media-type: application/json
+  override-with-generic-response: false  # ApiResponse<T> 제네릭 타입 resolve 오류 방지
