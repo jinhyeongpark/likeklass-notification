@@ -23,10 +23,10 @@ public class NotificationProcessor {
     private final NotificationOutboxRepository outboxRepository;
     private final NotificationIdempotencyRepository idempotencyRepository;
 
-    @Scheduled(fixedDelay = 60000)
+    @Scheduled(fixedDelay = 10000)
     @Transactional
     public void process() {
-        int maxLoopCount = 10; // 1분에 최대 50 * 10 = 500건
+        int maxLoopCount = 5; // 10초에 최대 50 * 5 = 250건
         int processedTotal = 0;
 
         while (maxLoopCount-- > 0) {
@@ -50,7 +50,7 @@ public class NotificationProcessor {
         }
 
         if (processedTotal > 0) {
-            log.info("==== [Worker] 이번 1분 주기 동안 총 {}건의 밀린 알림을 해소했습니다! ====", processedTotal);
+            log.info("==== [Worker] 이번 10초 주기 동안 총 {}건의 밀린 알림을 해소했습니다! ====", processedTotal);
         }
     }
 
