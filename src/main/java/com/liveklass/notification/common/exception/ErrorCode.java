@@ -22,6 +22,7 @@ public enum ErrorCode {
 
     // ===================== 409 Conflict =====================
     TEMPLATE_ALREADY_EXISTS(HttpStatus.CONFLICT, "TMPL-409", "동일 타입+채널 조합의 템플릿이 이미 존재합니다."),
+    TEMPLATE_PLACEHOLDER_MISSING(HttpStatus.BAD_REQUEST, "TMPL-400", "referenceData에 템플릿 플레이스홀더에 해당하는 키가 없습니다."),
 
     // ===================== 422 Unprocessable Entity =====================
     NOTIFICATION_CONTENT_REQUIRED(HttpStatus.UNPROCESSABLE_ENTITY, "NOTI-422", "알림 제목 또는 본문이 비어 있고, 해당 타입+채널 조합의 템플릿도 등록되어 있지 않습니다."),

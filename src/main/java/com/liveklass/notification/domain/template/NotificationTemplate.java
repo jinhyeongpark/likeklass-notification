@@ -1,5 +1,7 @@
 package com.liveklass.notification.domain.template;
 
+import com.liveklass.notification.common.exception.CustomException;
+import com.liveklass.notification.common.exception.ErrorCode;
 import com.liveklass.notification.domain.notification.NotificationChannel;
 import com.liveklass.notification.domain.notification.NotificationType;
 import jakarta.persistence.Column;
@@ -11,7 +13,9 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.AccessLevel;
@@ -49,6 +53,36 @@ public class NotificationTemplate {
 
     @Column(nullable = false, columnDefinition = "TEXT")
     private String contentTemplate;
+
+    /**
+     * 템플릿에 포함된 모든 플레이스홀더 키가 referenceData에 존재하는지 검증합니다.
+     * 누락된 키가 있으면 TEMPLATE_PLACEHOLDER_MISSING 예외를 발생시킵니다.
+     */
+    public void validateReferenceData(Map<String, Object> referenceData) {
+        Set<String> required = extractPlaceholders(titleTemplate);
+        required.addAll(extractPlaceholders(contentTemplate));
+
+        if (required.isEmpty()) {
+            return;
+        }
+
+        Set<String> provided = referenceData != null ? referenceData.keySet() : Set.of();
+        Set<String> missing = new HashSet<>(required);
+        missing.removeAll(provided);
+
+        if (!missing.isEmpty()) {
+            throw new CustomException(ErrorCode.TEMPLATE_PLACEHOLDER_MISSING);
+        }
+    }
+
+    private Set<String> extractPlaceholders(String template) {
+        Set<String> keys = new HashSet<>();
+        Matcher matcher = PLACEHOLDER.matcher(template);
+        while (matcher.find()) {
+            keys.add(matcher.group(1));
+        }
+        return keys;
+    }
 
     public void update(String titleTemplate, String contentTemplate) {
         this.titleTemplate = titleTemplate;
