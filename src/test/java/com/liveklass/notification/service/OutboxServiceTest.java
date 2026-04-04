@@ -19,6 +19,7 @@ import com.liveklass.notification.domain.notification.NotificationType;
 import com.liveklass.notification.domain.outbox.NotificationOutbox;
 import com.liveklass.notification.domain.outbox.NotificationOutboxRepository;
 import com.liveklass.notification.domain.outbox.OutboxStatus;
+import jakarta.persistence.LockTimeoutException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -66,10 +67,54 @@ class OutboxServiceTest {
                 Long outboxId = 1L;
                 NotificationOutbox outbox = NotificationOutbox.builder()
                     .id(outboxId)
+                    .status(OutboxStatus.INIT)
                     .nextRetryAt(LocalDateTime.now().plusHours(1))
                     .build();
 
-                when(outboxRepository.findById(outboxId)).thenReturn(Optional.of(outbox));
+                when(outboxRepository.findByIdForUpdate(outboxId)).thenReturn(Optional.of(outbox));
+
+                // when
+                outboxService.process(outboxId);
+
+                // then
+                verify(notificationRepository, never()).findById(any());
+            }
+        }
+
+        @Nested
+        @DisplayName("락 획득 중 타임아웃(LockTimeoutException)이 발생하는 경우")
+        class Context_lock_timeout {
+
+            @Test
+            @DisplayName("발송 작업을 중단하고 즉시 반환한다.")
+            void it_aborts_processing() {
+                // given
+                Long outboxId = 99L;
+                when(outboxRepository.findByIdForUpdate(outboxId)).thenThrow(new LockTimeoutException("Lock wait timeout"));
+
+                // when
+                outboxService.process(outboxId);
+
+                // then
+                verify(notificationRepository, never()).findById(any());
+            }
+        }
+
+        @Nested
+        @DisplayName("이미 처리 중(PROCESSING)이거나 완료된 상태인 경우")
+        class Context_not_init_status {
+
+            @Test
+            @DisplayName("발송 작업을 수행하지 않고 즉시 반환한다.")
+            void it_skips_processing() {
+                // given
+                Long outboxId = 100L;
+                NotificationOutbox outbox = NotificationOutbox.builder()
+                    .id(outboxId)
+                    .status(OutboxStatus.PROCESSING)
+                    .build();
+
+                when(outboxRepository.findByIdForUpdate(outboxId)).thenReturn(Optional.of(outbox));
 
                 // when
                 outboxService.process(outboxId);
@@ -103,7 +148,7 @@ class OutboxServiceTest {
                     .channel(NotificationChannel.EMAIL)
                     .build();
 
-                when(outboxRepository.findById(outboxId)).thenReturn(Optional.of(outbox));
+                when(outboxRepository.findByIdForUpdate(outboxId)).thenReturn(Optional.of(outbox));
                 when(notificationRepository.findById(notificationId)).thenReturn(Optional.of(notification));
 
                 // when
@@ -139,7 +184,7 @@ class OutboxServiceTest {
                     .channel(NotificationChannel.EMAIL)
                     .build();
 
-                when(outboxRepository.findById(outboxId)).thenReturn(Optional.of(outbox));
+                when(outboxRepository.findByIdForUpdate(outboxId)).thenReturn(Optional.of(outbox));
                 when(notificationRepository.findById(notificationId)).thenReturn(Optional.of(notification));
 
                 // when
@@ -177,7 +222,7 @@ class OutboxServiceTest {
                     .channel(NotificationChannel.EMAIL)
                     .build();
 
-                when(outboxRepository.findById(outboxId)).thenReturn(Optional.of(outbox));
+                when(outboxRepository.findByIdForUpdate(outboxId)).thenReturn(Optional.of(outbox));
                 when(notificationRepository.findById(notificationId)).thenReturn(Optional.of(notification));
                 doThrow(new RuntimeException("Timeout")).when(emailSender).send(any());
 
@@ -188,6 +233,47 @@ class OutboxServiceTest {
                 assertThat(outbox.getStatus()).isEqualTo(OutboxStatus.INIT);
                 assertThat(outbox.getRetryCount()).isEqualTo(1);
                 assertThat(outbox.getLastError()).isEqualTo("Timeout");
+            }
+        }
+
+        @Nested
+        @DisplayName("발송 실패 시 TTL이 만료된 경우")
+        class Context_expired {
+
+            @Test
+            @DisplayName("상태를 EXPIRED로 변경하고 재시도를 중단한다.")
+            void it_marks_as_expired() {
+                // given
+                Long outboxId = 5L;
+                Long notificationId = 40L;
+
+                // 11분 전 생성 (결제 확정 TTL인 10분 초과)
+                NotificationOutbox outbox = NotificationOutbox.builder()
+                    .id(outboxId)
+                    .notificationId(notificationId)
+                    .type(NotificationType.PAYMENT_CONFIRMED)
+                    .status(OutboxStatus.INIT)
+                    .createdAt(LocalDateTime.now().minusMinutes(11))
+                    .nextRetryAt(LocalDateTime.now().minusMinutes(1))
+                    .build();
+
+                Notification notification = Notification.builder()
+                    .id(notificationId)
+                    .isRead(false)
+                    .channel(NotificationChannel.EMAIL)
+                    .build();
+
+                when(outboxRepository.findByIdForUpdate(outboxId)).thenReturn(Optional.of(outbox));
+                when(notificationRepository.findById(notificationId)).thenReturn(Optional.of(notification));
+                doThrow(new RuntimeException("Network Error")).when(emailSender).send(any());
+
+                // when
+                outboxService.process(outboxId);
+
+                // then
+                assertThat(outbox.getStatus()).isEqualTo(OutboxStatus.EXPIRED);
+                assertThat(outbox.getLastError()).contains("[EXPIRED]");
+                verify(notificationRepository).findById(notificationId);
             }
         }
     }
