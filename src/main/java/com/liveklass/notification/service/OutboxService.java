@@ -10,6 +10,7 @@ import com.liveklass.notification.domain.notification.NotificationType;
 import com.liveklass.notification.domain.outbox.NotificationOutbox;
 import com.liveklass.notification.domain.outbox.NotificationOutboxRepository;
 import com.liveklass.notification.domain.outbox.OutboxStatus;
+import jakarta.persistence.LockTimeoutException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -54,9 +55,24 @@ public class OutboxService {
 
     @Transactional
     public void process(Long outboxId) {
-        NotificationOutbox outbox = outboxRepository.findById(outboxId)
-            .orElseThrow(() -> new CustomException(ErrorCode.OUTBOX_NOT_FOUND));
+        NotificationOutbox outbox;
+        try {
+            outbox = outboxRepository.findByIdForUpdate(outboxId)
+                .orElseThrow(() -> new CustomException(ErrorCode.OUTBOX_NOT_FOUND));
+        } catch (LockTimeoutException e) {
+            // 3초 안에 락을 획득하지 못한 경우 (스케줄러가 이미 작업 중)
+            // 이벤트 리스너는 조용히 양보하고 스케줄러에게 위임
+            log.info("[Outbox] 락 획득 시간 초과, 스케줄러에게 위임. outboxId={}", outboxId);
+            return;
+        }
 
+        // Current Read(최신 커밋 데이터) 후 상태 검사
+        // 다른 스레드(스케줄러 등)가 이미 PROCESSING 또는 COMPLETED로 바꾼 경우 깔끔하게 이탈
+        if (outbox.getStatus() != OutboxStatus.INIT) {
+            log.info("[Outbox] 이미 다른 스레드가 작업 중 (status={}), 발송 스킵. outboxId={}",
+                outbox.getStatus(), outboxId);
+            return;
+        }
         // 예약 발송: 아직 발송 시각이 되지 않았으면 스킵 (이벤트 리스너의 즉시 호출 차단)
         if (outbox.getNextRetryAt().isAfter(LocalDateTime.now())) {
             log.info("[Outbox] 예약 알림 — 발송 시각 미도래, 스케줄러에게 위임. outboxId={}", outboxId);
