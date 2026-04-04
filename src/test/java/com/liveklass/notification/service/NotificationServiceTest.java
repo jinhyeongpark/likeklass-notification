@@ -81,6 +81,34 @@ class NotificationServiceTest {
         }
 
         @Nested
+        @DisplayName("템플릿이 존재하지만 referenceData에 플레이스홀더 키가 누락된 경우")
+        class Context_with_missing_placeholder_key {
+
+            @Test
+            @DisplayName("TEMPLATE_PLACEHOLDER_MISSING 예외를 발생시킨다.")
+            void it_throws_placeholder_missing_exception() {
+                // given
+                NotificationRequestDto request = new NotificationRequestDto(
+                    1L, NotificationType.PAYMENT_CONFIRMED, NotificationChannel.EMAIL,
+                    null, null, "event-wrong-key", null, Map.of("name", "박진형", "amount", 39000)
+                );
+
+                NotificationTemplate template = NotificationTemplate.builder()
+                    .titleTemplate("{userName}님, 결제가 완료되었습니다!")
+                    .contentTemplate("{amount}원 결제 완료")
+                    .build();
+
+                when(idempotencyRepository.findByIdempotencyKeyAndExpiresAtAfter(any(), any())).thenReturn(Optional.empty());
+                when(templateRepository.findByTypeAndChannel(any(), any())).thenReturn(Optional.of(template));
+
+                // when & then
+                assertThatThrownBy(() -> notificationService.requestNotification(request))
+                    .isInstanceOf(CustomException.class)
+                    .hasMessageContaining(ErrorCode.TEMPLATE_PLACEHOLDER_MISSING.getMessage());
+            }
+        }
+
+        @Nested
         @DisplayName("본문(content)이 없는 템플릿 사용 요청일 때 템플릿이 존재하면")
         class Context_with_template {
 
