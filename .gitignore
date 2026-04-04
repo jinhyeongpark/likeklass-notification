@@ -42,3 +42,12 @@ src/main/generated/
 # Docker data directories
 docker/mysql/data
 data/
+
+## env
+.env
+
+## MCP (contains secrets)
+.mcp.json
+
+## Claude Code (memory, plans, skills 등 로컬 전용)
+.claude/
