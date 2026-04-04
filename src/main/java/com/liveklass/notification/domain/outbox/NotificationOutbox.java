@@ -61,11 +61,11 @@ public class NotificationOutbox {
             : errorMessage;
         this.lockedAt = null;
 
-        // [TTL 기반 폐기 정책] 결제 완료 알림은 10분 지연 시 폐기 처리 (EXPIRED)
-        if (this.type == NotificationType.PAYMENT_CONFIRMED) {
-            if (this.createdAt != null && this.createdAt.plusMinutes(10).isBefore(LocalDateTime.now())) {
+        // [TTL 기반 폐기 정책] NotificationType에 정의된 TTL을 초과한 경우 폐기 처리 (EXPIRED)
+        if (this.type != null && this.type.getTtl() != null) {
+            if (this.createdAt != null && this.createdAt.plus(this.type.getTtl()).isBefore(LocalDateTime.now())) {
                 this.status = OutboxStatus.EXPIRED;
-                this.lastError = "[EXPIRED] 10분 초과로 폐기됨: " + this.lastError;
+                this.lastError = "[EXPIRED] TTL 초과로 폐기됨: " + this.lastError;
                 return;
             }
         }
