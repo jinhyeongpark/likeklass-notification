@@ -49,6 +49,12 @@ public class NotificationOutbox {
 
     private LocalDateTime lockedAt;
 
+    @Column(nullable = false)
+    @Builder.Default
+    private Boolean isRead = false;
+
+    private LocalDateTime readAt;
+
     @Column(updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
@@ -104,6 +110,13 @@ public class NotificationOutbox {
 
         // 일반 알림은 기존 지수 백오프 (2분, 4분, 8분...)
         return now.plusMinutes((long) Math.pow(2, this.retryCount));
+    }
+
+    public void markAsRead() {
+        if (!Boolean.TRUE.equals(this.isRead)) {
+            this.isRead = true;
+            this.readAt = LocalDateTime.now();
+        }
     }
 
     public void manualRetry() {

@@ -3,6 +3,8 @@ package com.liveklass.notification.domain.notification;
 import static com.liveklass.notification.domain.notification.QNotification.notification;
 import static com.liveklass.notification.domain.outbox.QNotificationOutbox.notificationOutbox;
 
+import com.liveklass.notification.api.dto.NotificationSummary;
+import com.querydsl.core.types.Projections;
 import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import java.util.List;
@@ -15,9 +17,19 @@ public class NotificationQueryRepository {
 
     private final JPAQueryFactory queryFactory;
 
-    public List<Notification> findByReceiver(Long receiverId, Boolean isRead) {
+    public List<NotificationSummary> findByReceiver(Long receiverId, Boolean isRead) {
         return queryFactory
-            .selectFrom(notification)
+            .select(Projections.constructor(NotificationSummary.class,
+                notification.id,
+                notification.type,
+                notification.channel,
+                notification.title,
+                notification.content,
+                notificationOutbox.isRead,
+                notificationOutbox.readAt,
+                notification.scheduledAt
+            ))
+            .from(notification)
             .join(notificationOutbox).on(notificationOutbox.notificationId.eq(notification.id))
             .where(
                 notificationOutbox.receiverId.eq(receiverId),
@@ -33,6 +45,6 @@ public class NotificationQueryRepository {
     }
 
     private BooleanExpression isReadEq(Boolean isRead) {
-        return isRead != null ? notification.isRead.eq(isRead) : null;
+        return isRead != null ? notificationOutbox.isRead.eq(isRead) : null;
     }
 }

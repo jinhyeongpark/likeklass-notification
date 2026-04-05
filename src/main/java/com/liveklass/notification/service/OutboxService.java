@@ -109,7 +109,7 @@ public class OutboxService {
             outbox.startProcessing();
 
             // 읽음 시 발송 생략 정책
-            if (Boolean.TRUE.equals(notification.getIsRead())) {
+            if (Boolean.TRUE.equals(outbox.getIsRead())) {
                 outbox.complete();
                 log.info("[Outbox] 이미 읽은 알림이므로 발송 스킵. notificationId={}", notification.getId());
                 return;
