@@ -63,8 +63,8 @@ public class OutboxService {
         LocalDateTime now = LocalDateTime.now();
 
         String sql = """
-            INSERT INTO notification_outbox (notification_id, receiver_id, type, status, retry_count, next_retry_at, created_at)
-            VALUES (?, ?, ?, 'INIT', 0, ?, ?)
+            INSERT INTO notification_outbox (notification_id, receiver_id, type, status, retry_count, is_read, next_retry_at, created_at)
+            VALUES (?, ?, ?, 'INIT', 0, 0, ?, ?)
             """;
 
         jdbcTemplate.batchUpdate(sql, receiverIds, receiverIds.size(), (ps, receiverId) -> {
