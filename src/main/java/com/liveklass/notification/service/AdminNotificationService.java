@@ -31,7 +31,7 @@ public class AdminNotificationService {
 
     @Transactional
     public void retryFailedNotification(Long notificationId) {
-        NotificationOutbox outbox = outboxRepository.findByNotificationId(notificationId)
+        NotificationOutbox outbox = outboxRepository.findFirstByNotificationId(notificationId)
             .orElseThrow(() -> new CustomException(ErrorCode.OUTBOX_NOT_FOUND));
 
         if (outbox.getStatus() != OutboxStatus.FAILED) {
@@ -48,6 +48,6 @@ public class AdminNotificationService {
         notification.revertToSent();
 
         log.info("[Admin] 알림 수동 재전송 트리거 완료. notificationId={}, receiverId={}",
-            notificationId, notification.getReceiverId());
+            notificationId, outbox.getReceiverId());
     }
 }

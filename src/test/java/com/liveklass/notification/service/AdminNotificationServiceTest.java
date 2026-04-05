@@ -53,7 +53,7 @@ class AdminNotificationServiceTest {
                     .status(OutboxStatus.COMPLETED)
                     .build();
 
-                when(outboxRepository.findByNotificationId(notificationId)).thenReturn(Optional.of(outbox));
+                when(outboxRepository.findFirstByNotificationId(notificationId)).thenReturn(Optional.of(outbox));
 
                 // when & then
                 assertThatThrownBy(() -> adminNotificationService.retryFailedNotification(notificationId))
@@ -82,7 +82,7 @@ class AdminNotificationServiceTest {
                     .status(NotificationStatus.FAILED)
                     .build();
 
-                when(outboxRepository.findByNotificationId(notificationId)).thenReturn(Optional.of(outbox));
+                when(outboxRepository.findFirstByNotificationId(notificationId)).thenReturn(Optional.of(outbox));
                 when(notificationRepository.findById(notificationId)).thenReturn(Optional.of(notification));
 
                 // when
