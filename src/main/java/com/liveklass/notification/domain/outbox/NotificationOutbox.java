@@ -6,9 +6,14 @@ import java.time.LocalDateTime;
 import lombok.*;
 
 @Entity
-@Table(name = "notification_outbox", indexes = {
-    @Index(name = "idx_outbox_status_retry", columnList = "status, nextRetryAt")
-})
+@Table(name = "notification_outbox",
+    indexes = {
+        @Index(name = "idx_outbox_status_retry", columnList = "status, nextRetryAt")
+    },
+    uniqueConstraints = {
+        @UniqueConstraint(name = "uq_outbox_notification_receiver", columnNames = {"notificationId", "receiverId"})
+    }
+)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
