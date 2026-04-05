@@ -1,5 +1,7 @@
 package com.liveklass.notification.api.controller;
 
+import com.liveklass.notification.api.dto.BulkNotificationRequestDto;
+import com.liveklass.notification.api.dto.BulkNotificationResponse;
 import com.liveklass.notification.api.dto.NotificationRequestDto;
 import com.liveklass.notification.api.dto.NotificationStatusResponse;
 import com.liveklass.notification.api.dto.NotificationSummary;
@@ -55,6 +57,33 @@ public class NotificationController {
             "NOTIFICATION202",
             "알림 요청이 성공적으로 접수되었습니다.",
             notificationId
+        );
+    }
+
+    @Operation(
+        summary = "벌크 알림 발송 요청",
+        description = """
+            공통 알림 본문을 1회 저장하고, 다수의 수신자에게 Outbox를 일괄 등록합니다.
+            수신자별로 {type}:{receiverId}:{eventId} 조합의 멱등성 키를 검사하여 중복 수신자를 필터링합니다.
+            발송은 스케줄러가 처리합니다.
+            """
+    )
+    @ApiResponses({
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "202", description = "벌크 알림 요청 접수 완료"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "요청 값 검증 실패"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "422", description = "알림 본문 또는 템플릿 없음")
+    })
+    @PostMapping("/bulk")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public ApiResponse<BulkNotificationResponse> requestBulkNotification(
+        @RequestBody @Valid BulkNotificationRequestDto requestDto
+    ) {
+        BulkNotificationResponse response = notificationService.requestNotificationsBulk(requestDto);
+        return ApiResponse.onSuccess(
+            HttpStatus.ACCEPTED,
+            "NOTIFICATION202",
+            "벌크 알림 요청이 성공적으로 접수되었습니다.",
+            response
         );
     }
 
