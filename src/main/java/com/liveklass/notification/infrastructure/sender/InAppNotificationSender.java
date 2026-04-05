@@ -11,10 +11,10 @@ import org.springframework.stereotype.Component;
 public class InAppNotificationSender implements NotificationSender {
 
     @Override
-    public void send(Notification notification) {
+    public void send(Notification notification, Long receiverId) {
         // 실제 운영 환경에서는 FCM / WebSocket 등 인앱 푸시 로직으로 교체
         log.info("[IN_APP] 인앱 알림 발송");
-        log.info("   > 수신자 ID: {}", notification.getReceiverId());
+        log.info("   > 수신자 ID: {}", receiverId);
         log.info("   > 제목: {}", notification.getTitle());
         log.info("   > 내용: {}", notification.getContent());
         log.info("   > 데이터: {}", notification.getReferenceData());

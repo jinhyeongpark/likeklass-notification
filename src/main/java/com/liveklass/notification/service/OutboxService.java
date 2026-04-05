@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,29 +29,51 @@ public class OutboxService {
     private final Map<NotificationChannel, NotificationSender> senderMap;
     private final NotificationOutboxRepository outboxRepository;
     private final NotificationRepository notificationRepository;
+    private final JdbcTemplate jdbcTemplate;
 
     public OutboxService(List<NotificationSender> senders,
                          NotificationOutboxRepository outboxRepository,
-                         NotificationRepository notificationRepository) {
+                         NotificationRepository notificationRepository,
+                         JdbcTemplate jdbcTemplate) {
         this.senderMap = senders.stream()
             .collect(Collectors.toMap(NotificationSender::getChannel, Function.identity()));
         this.outboxRepository = outboxRepository;
         this.notificationRepository = notificationRepository;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Transactional
-    public Long create(Long notificationId, NotificationType type, LocalDateTime scheduledAt) {
-        // scheduledAt이 있으면 해당 시각에 발송, 없으면 즉시 처리 대기
+    public Long create(Long notificationId, Long receiverId, NotificationType type, LocalDateTime scheduledAt) {
         LocalDateTime nextRetryAt = (scheduledAt != null) ? scheduledAt : LocalDateTime.now();
 
         NotificationOutbox outbox = NotificationOutbox.builder()
             .notificationId(notificationId)
+            .receiverId(receiverId)
             .type(type)
             .status(OutboxStatus.INIT)
             .nextRetryAt(nextRetryAt)
             .build();
         outboxRepository.save(outbox);
         return outbox.getId();
+    }
+
+    @Transactional
+    public void bulkCreate(Long notificationId, List<Long> receiverIds, NotificationType type, LocalDateTime scheduledAt) {
+        LocalDateTime nextRetryAt = (scheduledAt != null) ? scheduledAt : LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now();
+
+        String sql = """
+            INSERT INTO notification_outbox (notification_id, receiver_id, type, status, retry_count, next_retry_at, created_at)
+            VALUES (?, ?, ?, 'INIT', 0, ?, ?)
+            """;
+
+        jdbcTemplate.batchUpdate(sql, receiverIds, receiverIds.size(), (ps, receiverId) -> {
+            ps.setLong(1, notificationId);
+            ps.setLong(2, receiverId);
+            ps.setString(3, type.name());
+            ps.setObject(4, nextRetryAt);
+            ps.setObject(5, now);
+        });
     }
 
     @Transactional
@@ -85,7 +108,7 @@ public class OutboxService {
         try {
             outbox.startProcessing();
 
-            // 읽음 시 발송 생략 정책 정책
+            // 읽음 시 발송 생략 정책
             if (Boolean.TRUE.equals(notification.getIsRead())) {
                 outbox.complete();
                 log.info("[Outbox] 이미 읽은 알림이므로 발송 스킵. notificationId={}", notification.getId());
@@ -96,17 +119,16 @@ public class OutboxService {
             if (sender == null) {
                 throw new IllegalStateException("지원하지 않는 발송 채널: " + notification.getChannel());
             }
-            sender.send(notification);
+            sender.send(notification, outbox.getReceiverId());
 
             outbox.complete();
-            notification.markAsSent(); // 인박스 노출 상태로 전환
+            notification.markAsSent();
             log.info("[Outbox] 발송 완료. notificationId={}, channel={}", notification.getId(), notification.getChannel());
 
         } catch (Exception e) {
             log.error("알림 발송 중 에러 발생: {}", e.getMessage());
             outbox.fail(e.getMessage(), 3);
 
-            // 최종 실패 시 Notification도 FAILED 처리
             if (outbox.getStatus() == OutboxStatus.FAILED || outbox.getStatus() == OutboxStatus.EXPIRED) {
                 notification.markAsFailed();
                 log.warn("[Outbox] 발송 중지 처리 (상태: {}). notificationId={}", outbox.getStatus(), notification.getId());

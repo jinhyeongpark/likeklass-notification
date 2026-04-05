@@ -1,5 +1,7 @@
 package com.liveklass.notification.service;
 
+import com.liveklass.notification.api.dto.BulkNotificationRequestDto;
+import com.liveklass.notification.api.dto.BulkNotificationResponse;
 import com.liveklass.notification.api.dto.NotificationRequestDto;
 import com.liveklass.notification.api.dto.NotificationStatusResponse;
 import com.liveklass.notification.api.dto.NotificationSummary;
@@ -16,6 +18,7 @@ import com.liveklass.notification.domain.outbox.NotificationOutboxRepository;
 import com.liveklass.notification.domain.template.NotificationTemplate;
 import com.liveklass.notification.domain.template.NotificationTemplateRepository;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -42,7 +45,7 @@ public class NotificationService {
 
     @Transactional
     public Long requestNotification(NotificationRequestDto request) {
-        String idempotencyKey = buildKey(request);
+        String idempotencyKey = buildKey(request.type().name(), request.receiverId(), request.eventId());
         LocalDateTime now = LocalDateTime.now();
 
         Optional<NotificationIdempotency> active =
@@ -55,7 +58,6 @@ public class NotificationService {
         try {
             idempotencyRepository.deleteByIdempotencyKey(idempotencyKey);
 
-            // 템플릿 기반 제목/본문 해석
             String title = request.title();
             String content = request.content();
 
@@ -73,17 +75,14 @@ public class NotificationService {
                 }
             }
 
-            // 템플릿도 없고, 내용(title/content) 중 하나라도 비어있으면 발송 불가
             if (title == null || title.isBlank() || content == null || content.isBlank()) {
                 throw new CustomException(ErrorCode.NOTIFICATION_CONTENT_REQUIRED);
             }
 
-            // scheduledAt이 미래 시각이면 SCHEDULED, 그 외(null 포함)는 SENT
             boolean isScheduled = request.scheduledAt() != null && request.scheduledAt().isAfter(now);
             NotificationStatus status = isScheduled ? NotificationStatus.SCHEDULED : NotificationStatus.SENT;
 
             Notification notification = Notification.builder()
-                .receiverId(request.receiverId())
                 .title(title)
                 .content(content)
                 .type(request.type())
@@ -100,7 +99,7 @@ public class NotificationService {
                 NotificationIdempotency.of(idempotencyKey, notification.getId(), now.plusHours(IDEMPOTENCY_TTL_HOURS))
             );
 
-            Long outboxId = outboxService.create(notification.getId(), notification.getType(), request.scheduledAt());
+            Long outboxId = outboxService.create(notification.getId(), request.receiverId(), notification.getType(), request.scheduledAt());
             eventPublisher.publishEvent(new NotificationCreatedEvent(outboxId));
 
             return notification.getId();
@@ -113,12 +112,88 @@ public class NotificationService {
         }
     }
 
+    @Transactional
+    public BulkNotificationResponse requestNotificationsBulk(BulkNotificationRequestDto request) {
+        LocalDateTime now = LocalDateTime.now();
+        int total = request.receiverIds().size();
+
+        String title = request.title();
+        String content = request.content();
+
+        Optional<NotificationTemplate> templateOpt =
+            templateRepository.findByTypeAndChannel(request.type(), request.channel());
+
+        if (templateOpt.isPresent()) {
+            NotificationTemplate template = templateOpt.get();
+            template.validateReferenceData(request.referenceData());
+            if (title == null || title.isBlank()) {
+                title = template.resolveTitle(request.referenceData());
+            }
+            if (content == null || content.isBlank()) {
+                content = template.resolveContent(request.referenceData());
+            }
+        }
+
+        if (title == null || title.isBlank() || content == null || content.isBlank()) {
+            throw new CustomException(ErrorCode.NOTIFICATION_CONTENT_REQUIRED);
+        }
+
+        // 수신자별 멱등성 체크
+        List<Long> acceptedReceiverIds = new ArrayList<>();
+        for (Long receiverId : request.receiverIds()) {
+            String key = buildKey(request.type().name(), receiverId, request.eventId());
+            if (idempotencyRepository.findByIdempotencyKeyAndExpiresAtAfter(key, now).isPresent()) {
+                log.info(">>> [Idempotency] 벌크 요청 중 중복 수신자 필터링. receiverId={}", receiverId);
+                continue;
+            }
+            acceptedReceiverIds.add(receiverId);
+        }
+
+        int skipped = total - acceptedReceiverIds.size();
+
+        if (acceptedReceiverIds.isEmpty()) {
+            return new BulkNotificationResponse(null, total, 0, skipped);
+        }
+
+        boolean isScheduled = request.scheduledAt() != null && request.scheduledAt().isAfter(now);
+        NotificationStatus status = isScheduled ? NotificationStatus.SCHEDULED : NotificationStatus.SENT;
+
+        Notification notification = Notification.builder()
+            .title(title)
+            .content(content)
+            .type(request.type())
+            .channel(request.channel())
+            .status(status)
+            .scheduledAt(request.scheduledAt())
+            .referenceData(request.referenceData())
+            .build();
+        notificationRepository.save(notification);
+
+        // 수신자별 멱등성 레코드 저장
+        List<NotificationIdempotency> idempotencyRecords = acceptedReceiverIds.stream()
+            .map(receiverId -> {
+                String key = buildKey(request.type().name(), receiverId, request.eventId());
+                idempotencyRepository.deleteByIdempotencyKey(key);
+                return NotificationIdempotency.of(key, notification.getId(), now.plusHours(IDEMPOTENCY_TTL_HOURS));
+            })
+            .toList();
+        idempotencyRepository.saveAll(idempotencyRecords);
+
+        // 벌크 Outbox 삽입 (JdbcTemplate 단일 쿼리)
+        outboxService.bulkCreate(notification.getId(), acceptedReceiverIds, notification.getType(), request.scheduledAt());
+
+        log.info("[Bulk] 벌크 알림 접수 완료. notificationId={}, total={}, accepted={}, skipped={}",
+            notification.getId(), total, acceptedReceiverIds.size(), skipped);
+
+        return new BulkNotificationResponse(notification.getId(), total, acceptedReceiverIds.size(), skipped);
+    }
+
     @Transactional(readOnly = true)
     public NotificationStatusResponse getStatus(Long notificationId) {
         Notification notification = notificationRepository.findById(notificationId)
             .orElseThrow(() -> new CustomException(ErrorCode.NOTIFICATION_NOT_FOUND));
 
-        NotificationOutbox outbox = outboxRepository.findByNotificationId(notificationId)
+        NotificationOutbox outbox = outboxRepository.findFirstByNotificationId(notificationId)
             .orElseThrow(() -> new CustomException(ErrorCode.OUTBOX_NOT_FOUND));
 
         return NotificationStatusResponse.of(notification, outbox);
@@ -132,11 +207,6 @@ public class NotificationService {
             .toList();
     }
 
-    /**
-     * 읽음 처리.
-     * markAsRead()는 멱등 — 이미 읽은 상태이면 상태를 변경하지 않으므로
-     * 여러 기기에서 동시에 호출되어도 안전합니다.
-     */
     @Transactional
     public void markAsRead(Long notificationId) {
         Notification notification = notificationRepository.findById(notificationId)
@@ -144,7 +214,7 @@ public class NotificationService {
         notification.markAsRead();
     }
 
-    private String buildKey(NotificationRequestDto request) {
-        return request.type() + ":" + request.receiverId() + ":" + request.eventId();
+    private String buildKey(String type, Long receiverId, String eventId) {
+        return type + ":" + receiverId + ":" + eventId;
     }
 }

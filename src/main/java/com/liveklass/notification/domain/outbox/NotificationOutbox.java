@@ -19,8 +19,11 @@ public class NotificationOutbox {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true) // 사용자의 중복 생성을 방지
+    @Column(nullable = false)
     private Long notificationId;
+
+    @Column(nullable = false)
+    private Long receiverId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)

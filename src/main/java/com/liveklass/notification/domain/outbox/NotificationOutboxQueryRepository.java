@@ -50,7 +50,7 @@ public class NotificationOutboxQueryRepository {
             .select(Projections.constructor(
                 FailedNotificationResponse.class,
                 notification.id,
-                notification.receiverId,
+                notificationOutbox.receiverId,
                 notification.type,
                 notification.channel,
                 notification.title,

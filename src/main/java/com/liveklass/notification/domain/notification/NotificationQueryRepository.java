@@ -1,6 +1,7 @@
 package com.liveklass.notification.domain.notification;
 
 import static com.liveklass.notification.domain.notification.QNotification.notification;
+import static com.liveklass.notification.domain.outbox.QNotificationOutbox.notificationOutbox;
 
 import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.jpa.impl.JPAQueryFactory;
@@ -17,17 +18,14 @@ public class NotificationQueryRepository {
     public List<Notification> findByReceiver(Long receiverId, Boolean isRead) {
         return queryFactory
             .selectFrom(notification)
+            .join(notificationOutbox).on(notificationOutbox.notificationId.eq(notification.id))
             .where(
-                receiverIdEq(receiverId),
+                notificationOutbox.receiverId.eq(receiverId),
                 statusEq(NotificationStatus.SENT),
                 isReadEq(isRead)
             )
             .orderBy(notification.id.desc())
             .fetch();
-    }
-
-    private BooleanExpression receiverIdEq(Long receiverId) {
-        return notification.receiverId.eq(receiverId);
     }
 
     private BooleanExpression statusEq(NotificationStatus status) {

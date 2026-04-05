@@ -33,9 +33,6 @@ public class Notification {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
-    private Long receiverId;
-
     @Column(nullable = false, length = 100)
     private String title;
 
