@@ -51,3 +51,6 @@ data/
 
 ## Claude Code (memory, plans, skills 등 로컬 전용)
 .claude/
+CLAUDE.md
+implementation_plan.md
+walkthrough.md

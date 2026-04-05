@@ -3,6 +3,10 @@ package com.liveklass.notification.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -30,6 +34,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("OutboxService 단위 테스트")
@@ -44,12 +49,15 @@ class OutboxServiceTest {
     @Mock
     private NotificationSender emailSender;
 
+    @Mock
+    private JdbcTemplate jdbcTemplate;
+
     private OutboxService outboxService;
 
     @BeforeEach
     void setUp() {
         when(emailSender.getChannel()).thenReturn(NotificationChannel.EMAIL);
-        outboxService = new OutboxService(List.of(emailSender), outboxRepository, notificationRepository);
+        outboxService = new OutboxService(List.of(emailSender), outboxRepository, notificationRepository, jdbcTemplate);
     }
 
     @Nested
@@ -125,7 +133,7 @@ class OutboxServiceTest {
         }
 
         @Nested
-        @DisplayName("이미 읽음(isRead=true) 상태인 알림인 경우")
+        @DisplayName("이미 읽음(isRead=true) 상태인 Outbox인 경우")
         class Context_already_read {
 
             @Test
@@ -139,12 +147,12 @@ class OutboxServiceTest {
                     .id(outboxId)
                     .notificationId(notificationId)
                     .status(OutboxStatus.INIT)
+                    .isRead(true)
                     .nextRetryAt(LocalDateTime.now().minusMinutes(1))
                     .build();
 
                 Notification notification = Notification.builder()
                     .id(notificationId)
-                    .isRead(true)
                     .channel(NotificationChannel.EMAIL)
                     .build();
 
@@ -155,7 +163,7 @@ class OutboxServiceTest {
                 outboxService.process(outboxId);
 
                 // then
-                verify(emailSender, never()).send(any());
+                verify(emailSender, never()).send(any(), any());
                 assertThat(outbox.getStatus()).isEqualTo(OutboxStatus.COMPLETED);
             }
         }
@@ -180,7 +188,6 @@ class OutboxServiceTest {
 
                 Notification notification = Notification.builder()
                     .id(notificationId)
-                    .isRead(false)
                     .channel(NotificationChannel.EMAIL)
                     .build();
 
@@ -191,7 +198,7 @@ class OutboxServiceTest {
                 outboxService.process(outboxId);
 
                 // then
-                verify(emailSender).send(notification);
+                verify(emailSender).send(eq(notification), any());
                 assertThat(outbox.getStatus()).isEqualTo(OutboxStatus.COMPLETED);
             }
         }
@@ -218,13 +225,12 @@ class OutboxServiceTest {
 
                 Notification notification = Notification.builder()
                     .id(notificationId)
-                    .isRead(false)
                     .channel(NotificationChannel.EMAIL)
                     .build();
 
                 when(outboxRepository.findByIdForUpdate(outboxId)).thenReturn(Optional.of(outbox));
                 when(notificationRepository.findById(notificationId)).thenReturn(Optional.of(notification));
-                doThrow(new RuntimeException("Timeout")).when(emailSender).send(any());
+                doThrow(new RuntimeException("Timeout")).when(emailSender).send(any(), any());
 
                 // when
                 outboxService.process(outboxId);
@@ -259,13 +265,12 @@ class OutboxServiceTest {
 
                 Notification notification = Notification.builder()
                     .id(notificationId)
-                    .isRead(false)
                     .channel(NotificationChannel.EMAIL)
                     .build();
 
                 when(outboxRepository.findByIdForUpdate(outboxId)).thenReturn(Optional.of(outbox));
                 when(notificationRepository.findById(notificationId)).thenReturn(Optional.of(notification));
-                doThrow(new RuntimeException("Network Error")).when(emailSender).send(any());
+                doThrow(new RuntimeException("Network Error")).when(emailSender).send(any(), any());
 
                 // when
                 outboxService.process(outboxId);
@@ -274,6 +279,49 @@ class OutboxServiceTest {
                 assertThat(outbox.getStatus()).isEqualTo(OutboxStatus.EXPIRED);
                 assertThat(outbox.getLastError()).contains("[EXPIRED]");
                 verify(notificationRepository).findById(notificationId);
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("bulkCreate 메서드는")
+    class Describe_bulkCreate {
+
+        @Nested
+        @DisplayName("수신자 ID 목록이 주어지면")
+        class Context_with_receiver_ids {
+
+            @Test
+            @DisplayName("수신자 수만큼 JdbcTemplate.batchUpdate를 호출한다.")
+            void it_calls_batch_update_with_all_receiver_ids() {
+                // given
+                Long notificationId = 100L;
+                List<Long> receiverIds = List.of(1L, 2L, 3L, 4L, 5L);
+
+                // when
+                outboxService.bulkCreate(notificationId, receiverIds, NotificationType.PAYMENT_CONFIRMED, null);
+
+                // then
+                verify(jdbcTemplate).batchUpdate(anyString(), eq(receiverIds), eq(receiverIds.size()), any());
+            }
+        }
+
+        @Nested
+        @DisplayName("수신자가 1명인 경우에도")
+        class Context_with_single_receiver {
+
+            @Test
+            @DisplayName("batchUpdate를 정상적으로 호출한다.")
+            void it_calls_batch_update_for_single_receiver() {
+                // given
+                Long notificationId = 200L;
+                List<Long> receiverIds = List.of(42L);
+
+                // when
+                outboxService.bulkCreate(notificationId, receiverIds, NotificationType.PAYMENT_CONFIRMED, null);
+
+                // then
+                verify(jdbcTemplate).batchUpdate(anyString(), eq(receiverIds), eq(1), any());
             }
         }
     }

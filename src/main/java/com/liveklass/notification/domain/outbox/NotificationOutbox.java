@@ -6,9 +6,14 @@ import java.time.LocalDateTime;
 import lombok.*;
 
 @Entity
-@Table(name = "notification_outbox", indexes = {
-    @Index(name = "idx_outbox_status_retry", columnList = "status, nextRetryAt")
-})
+@Table(name = "notification_outbox",
+    indexes = {
+        @Index(name = "idx_outbox_status_retry", columnList = "status, nextRetryAt")
+    },
+    uniqueConstraints = {
+        @UniqueConstraint(name = "uq_outbox_notification_receiver", columnNames = {"notificationId", "receiverId"})
+    }
+)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
@@ -19,8 +24,11 @@ public class NotificationOutbox {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true) // 사용자의 중복 생성을 방지
+    @Column(nullable = false)
     private Long notificationId;
+
+    @Column(nullable = false)
+    private Long receiverId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
@@ -40,6 +48,12 @@ public class NotificationOutbox {
     private LocalDateTime nextRetryAt;
 
     private LocalDateTime lockedAt;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private Boolean isRead = false;
+
+    private LocalDateTime readAt;
 
     @Column(updatable = false)
     @Builder.Default
@@ -96,6 +110,13 @@ public class NotificationOutbox {
 
         // 일반 알림은 기존 지수 백오프 (2분, 4분, 8분...)
         return now.plusMinutes((long) Math.pow(2, this.retryCount));
+    }
+
+    public void markAsRead() {
+        if (!Boolean.TRUE.equals(this.isRead)) {
+            this.isRead = true;
+            this.readAt = LocalDateTime.now();
+        }
     }
 
     public void manualRetry() {

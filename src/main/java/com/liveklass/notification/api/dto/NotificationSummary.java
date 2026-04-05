@@ -1,6 +1,5 @@
 package com.liveklass.notification.api.dto;
 
-import com.liveklass.notification.domain.notification.Notification;
 import com.liveklass.notification.domain.notification.NotificationChannel;
 import com.liveklass.notification.domain.notification.NotificationType;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -34,16 +33,4 @@ public record NotificationSummary(
     LocalDateTime scheduledAt
 
 ) {
-    public static NotificationSummary from(Notification notification) {
-        return new NotificationSummary(
-            notification.getId(),
-            notification.getType(),
-            notification.getChannel(),
-            notification.getTitle(),
-            notification.getContent(),
-            notification.getIsRead(),
-            notification.getReadAt(),
-            notification.getScheduledAt()
-        );
-    }
 }

@@ -1,8 +1,11 @@
 package com.liveklass.notification.api.controller;
 
+import com.liveklass.notification.api.dto.BulkNotificationRequestDto;
+import com.liveklass.notification.api.dto.BulkNotificationResponse;
 import com.liveklass.notification.api.dto.NotificationRequestDto;
-import com.liveklass.notification.api.dto.NotificationStatusResponse;
+import com.liveklass.notification.api.dto.NotificationStatusSummaryResponse;
 import com.liveklass.notification.api.dto.NotificationSummary;
+import com.liveklass.notification.api.dto.ReceiverStatusResponse;
 import com.liveklass.notification.common.util.ApiResponse;
 import com.liveklass.notification.service.NotificationService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -59,19 +62,62 @@ public class NotificationController {
     }
 
     @Operation(
-        summary = "알림 처리 상태 조회",
-        description = "특정 알림의 현재 발송 상태를 조회합니다. Outbox 재시도 횟수, 다음 재시도 예정 시각, 실패 사유를 포함합니다."
+        summary = "벌크 알림 발송 요청",
+        description = """
+            공통 알림 본문을 1회 저장하고, 다수의 수신자에게 Outbox를 일괄 등록합니다.
+            수신자별로 {type}:{receiverId}:{eventId} 조합의 멱등성 키를 검사하여 중복 수신자를 필터링합니다.
+            발송은 스케줄러가 처리합니다.
+            """
+    )
+    @ApiResponses({
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "202", description = "벌크 알림 요청 접수 완료"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "요청 값 검증 실패"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "422", description = "알림 본문 또는 템플릿 없음")
+    })
+    @PostMapping("/bulk")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public ApiResponse<BulkNotificationResponse> requestBulkNotification(
+        @RequestBody @Valid BulkNotificationRequestDto requestDto
+    ) {
+        BulkNotificationResponse response = notificationService.requestNotificationsBulk(requestDto);
+        return ApiResponse.onSuccess(
+            HttpStatus.ACCEPTED,
+            "NOTIFICATION202",
+            "벌크 알림 요청이 성공적으로 접수되었습니다.",
+            response
+        );
+    }
+
+    @Operation(
+        summary = "알림 발송 집계 상태 조회",
+        description = "특정 알림의 전체 수신자 발송 현황을 집계하여 반환합니다. 완료/실패/대기/폐기 건수를 포함합니다."
     )
     @ApiResponses({
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "알림 또는 Outbox를 찾을 수 없음")
     })
     @GetMapping("/{notificationId}/status")
-    public ApiResponse<NotificationStatusResponse> getStatus(
+    public ApiResponse<NotificationStatusSummaryResponse> getStatus(
         @Parameter(description = "알림 ID", example = "10")
         @PathVariable Long notificationId
     ) {
         return ApiResponse.onSuccess(notificationService.getStatus(notificationId));
+    }
+
+    @Operation(
+        summary = "수신자별 발송 상태 상세 조회",
+        description = "특정 알림의 수신자별 Outbox 상태, 읽음 여부, 재시도 횟수, 실패 사유를 반환합니다."
+    )
+    @ApiResponses({
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "알림을 찾을 수 없음")
+    })
+    @GetMapping("/{notificationId}/status/receivers")
+    public ApiResponse<List<ReceiverStatusResponse>> getReceiverStatuses(
+        @Parameter(description = "알림 ID", example = "10")
+        @PathVariable Long notificationId
+    ) {
+        return ApiResponse.onSuccess(notificationService.getReceiverStatuses(notificationId));
     }
 
     @Operation(
@@ -98,21 +144,23 @@ public class NotificationController {
     @Operation(
         summary = "알림 읽음 처리",
         description = """
-            특정 알림을 읽음 상태로 전환합니다.
+            특정 수신자의 알림을 읽음 상태로 전환합니다.
             이미 읽은 알림에 대해 재호출해도 멱등하게 처리되므로,
             여러 기기에서 동시에 읽음 요청이 들어와도 안전합니다.
             """
     )
     @ApiResponses({
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "읽음 처리 완료"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "알림을 찾을 수 없음")
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Outbox를 찾을 수 없음")
     })
     @PatchMapping("/{notificationId}/read")
     public ApiResponse<Void> markAsRead(
         @Parameter(description = "알림 ID", example = "10")
-        @PathVariable Long notificationId
+        @PathVariable Long notificationId,
+        @Parameter(description = "수신자 ID", example = "42", required = true)
+        @RequestParam Long receiverId
     ) {
-        notificationService.markAsRead(notificationId);
+        notificationService.markAsRead(notificationId, receiverId);
         return ApiResponse.onSuccess();
     }
 }

@@ -33,9 +33,6 @@ public class Notification {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
-    private Long receiverId;
-
     @Column(nullable = false, length = 100)
     private String title;
 
@@ -63,19 +60,6 @@ public class Notification {
     private Map<String, Object> referenceData;
 
     private LocalDateTime scheduledAt; // 예약 발송 시각 (null = 즉시 발송)
-
-    @Column(nullable = false)
-    @Builder.Default
-    private Boolean isRead = false;
-
-    private LocalDateTime readAt;
-
-    public void markAsRead() {
-        if (!this.isRead) {
-            this.isRead = true;
-            this.readAt = LocalDateTime.now();
-        }
-    }
 
     public void markAsSent() {
         this.status = NotificationStatus.SENT;

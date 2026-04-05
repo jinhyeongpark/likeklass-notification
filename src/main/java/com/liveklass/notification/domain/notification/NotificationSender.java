@@ -1,6 +1,6 @@
 package com.liveklass.notification.domain.notification;
 
 public interface NotificationSender {
-    void send(Notification notification);
+    void send(Notification notification, Long receiverId);
     NotificationChannel getChannel();
 }
