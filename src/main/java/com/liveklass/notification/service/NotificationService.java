@@ -3,8 +3,9 @@ package com.liveklass.notification.service;
 import com.liveklass.notification.api.dto.BulkNotificationRequestDto;
 import com.liveklass.notification.api.dto.BulkNotificationResponse;
 import com.liveklass.notification.api.dto.NotificationRequestDto;
-import com.liveklass.notification.api.dto.NotificationStatusResponse;
+import com.liveklass.notification.api.dto.NotificationStatusSummaryResponse;
 import com.liveklass.notification.api.dto.NotificationSummary;
+import com.liveklass.notification.api.dto.ReceiverStatusResponse;
 import com.liveklass.notification.common.exception.CustomException;
 import com.liveklass.notification.common.exception.ErrorCode;
 import com.liveklass.notification.domain.idempotency.NotificationIdempotency;
@@ -189,29 +190,42 @@ public class NotificationService {
     }
 
     @Transactional(readOnly = true)
-    public NotificationStatusResponse getStatus(Long notificationId) {
+    public NotificationStatusSummaryResponse getStatus(Long notificationId) {
         Notification notification = notificationRepository.findById(notificationId)
             .orElseThrow(() -> new CustomException(ErrorCode.NOTIFICATION_NOT_FOUND));
 
-        NotificationOutbox outbox = outboxRepository.findFirstByNotificationId(notificationId)
-            .orElseThrow(() -> new CustomException(ErrorCode.OUTBOX_NOT_FOUND));
+        List<NotificationOutbox> outboxes = outboxRepository.findAllByNotificationId(notificationId);
+        if (outboxes.isEmpty()) {
+            throw new CustomException(ErrorCode.OUTBOX_NOT_FOUND);
+        }
 
-        return NotificationStatusResponse.of(notification, outbox);
+        return NotificationStatusSummaryResponse.of(
+            notificationId, notification.getType(), notification.getChannel(), outboxes
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReceiverStatusResponse> getReceiverStatuses(Long notificationId) {
+        if (!notificationRepository.existsById(notificationId)) {
+            throw new CustomException(ErrorCode.NOTIFICATION_NOT_FOUND);
+        }
+        return outboxRepository.findAllByNotificationId(notificationId)
+            .stream()
+            .map(ReceiverStatusResponse::from)
+            .toList();
     }
 
     @Transactional(readOnly = true)
     public List<NotificationSummary> getNotifications(Long receiverId, Boolean isRead) {
-        return notificationQueryRepository.findByReceiver(receiverId, isRead)
-            .stream()
-            .map(NotificationSummary::from)
-            .toList();
+        return notificationQueryRepository.findByReceiver(receiverId, isRead);
     }
 
     @Transactional
-    public void markAsRead(Long notificationId) {
-        Notification notification = notificationRepository.findById(notificationId)
-            .orElseThrow(() -> new CustomException(ErrorCode.NOTIFICATION_NOT_FOUND));
-        notification.markAsRead();
+    public void markAsRead(Long notificationId, Long receiverId) {
+        NotificationOutbox outbox = outboxRepository
+            .findByNotificationIdAndReceiverId(notificationId, receiverId)
+            .orElseThrow(() -> new CustomException(ErrorCode.OUTBOX_NOT_FOUND));
+        outbox.markAsRead();
     }
 
     private String buildKey(String type, Long receiverId, String eventId) {
