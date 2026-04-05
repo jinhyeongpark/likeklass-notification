@@ -3,6 +3,7 @@ package com.liveklass.notification.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -30,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("OutboxService 단위 테스트")
@@ -44,12 +46,15 @@ class OutboxServiceTest {
     @Mock
     private NotificationSender emailSender;
 
+    @Mock
+    private JdbcTemplate jdbcTemplate;
+
     private OutboxService outboxService;
 
     @BeforeEach
     void setUp() {
         when(emailSender.getChannel()).thenReturn(NotificationChannel.EMAIL);
-        outboxService = new OutboxService(List.of(emailSender), outboxRepository, notificationRepository);
+        outboxService = new OutboxService(List.of(emailSender), outboxRepository, notificationRepository, jdbcTemplate);
     }
 
     @Nested
@@ -155,7 +160,7 @@ class OutboxServiceTest {
                 outboxService.process(outboxId);
 
                 // then
-                verify(emailSender, never()).send(any());
+                verify(emailSender, never()).send(any(), any());
                 assertThat(outbox.getStatus()).isEqualTo(OutboxStatus.COMPLETED);
             }
         }
@@ -191,7 +196,7 @@ class OutboxServiceTest {
                 outboxService.process(outboxId);
 
                 // then
-                verify(emailSender).send(notification);
+                verify(emailSender).send(eq(notification), any());
                 assertThat(outbox.getStatus()).isEqualTo(OutboxStatus.COMPLETED);
             }
         }
@@ -224,7 +229,7 @@ class OutboxServiceTest {
 
                 when(outboxRepository.findByIdForUpdate(outboxId)).thenReturn(Optional.of(outbox));
                 when(notificationRepository.findById(notificationId)).thenReturn(Optional.of(notification));
-                doThrow(new RuntimeException("Timeout")).when(emailSender).send(any());
+                doThrow(new RuntimeException("Timeout")).when(emailSender).send(any(), any());
 
                 // when
                 outboxService.process(outboxId);
@@ -265,7 +270,7 @@ class OutboxServiceTest {
 
                 when(outboxRepository.findByIdForUpdate(outboxId)).thenReturn(Optional.of(outbox));
                 when(notificationRepository.findById(notificationId)).thenReturn(Optional.of(notification));
-                doThrow(new RuntimeException("Network Error")).when(emailSender).send(any());
+                doThrow(new RuntimeException("Network Error")).when(emailSender).send(any(), any());
 
                 // when
                 outboxService.process(outboxId);

@@ -16,6 +16,7 @@ import com.liveklass.notification.domain.notification.NotificationChannel;
 import com.liveklass.notification.domain.notification.NotificationQueryRepository;
 import com.liveklass.notification.domain.notification.NotificationRepository;
 import com.liveklass.notification.domain.notification.NotificationType;
+import com.liveklass.notification.domain.outbox.NotificationOutboxRepository;
 import com.liveklass.notification.domain.template.NotificationTemplate;
 import com.liveklass.notification.domain.template.NotificationTemplateRepository;
 import java.time.LocalDateTime;
@@ -38,6 +39,8 @@ class NotificationServiceTest {
     private NotificationRepository notificationRepository;
     @Mock
     private NotificationQueryRepository notificationQueryRepository;
+    @Mock
+    private NotificationOutboxRepository outboxRepository;
     @Mock
     private NotificationIdempotencyRepository idempotencyRepository;
     @Mock
@@ -128,7 +131,7 @@ class NotificationServiceTest {
 
                 when(idempotencyRepository.findByIdempotencyKeyAndExpiresAtAfter(any(), any())).thenReturn(Optional.empty());
                 when(templateRepository.findByTypeAndChannel(any(), any())).thenReturn(Optional.of(template));
-                when(outboxService.create(any(), any(), any())).thenReturn(5L);
+                when(outboxService.create(any(), any(), any(), any())).thenReturn(5L);
 
                 // when
                 notificationService.requestNotification(request);
