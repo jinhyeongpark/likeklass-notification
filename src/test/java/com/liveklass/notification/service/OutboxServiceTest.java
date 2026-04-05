@@ -3,6 +3,9 @@ package com.liveklass.notification.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -279,6 +282,49 @@ class OutboxServiceTest {
                 assertThat(outbox.getStatus()).isEqualTo(OutboxStatus.EXPIRED);
                 assertThat(outbox.getLastError()).contains("[EXPIRED]");
                 verify(notificationRepository).findById(notificationId);
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("bulkCreate 메서드는")
+    class Describe_bulkCreate {
+
+        @Nested
+        @DisplayName("수신자 ID 목록이 주어지면")
+        class Context_with_receiver_ids {
+
+            @Test
+            @DisplayName("수신자 수만큼 JdbcTemplate.batchUpdate를 호출한다.")
+            void it_calls_batch_update_with_all_receiver_ids() {
+                // given
+                Long notificationId = 100L;
+                List<Long> receiverIds = List.of(1L, 2L, 3L, 4L, 5L);
+
+                // when
+                outboxService.bulkCreate(notificationId, receiverIds, NotificationType.PAYMENT_CONFIRMED, null);
+
+                // then
+                verify(jdbcTemplate).batchUpdate(anyString(), eq(receiverIds), eq(receiverIds.size()), any());
+            }
+        }
+
+        @Nested
+        @DisplayName("수신자가 1명인 경우에도")
+        class Context_with_single_receiver {
+
+            @Test
+            @DisplayName("batchUpdate를 정상적으로 호출한다.")
+            void it_calls_batch_update_for_single_receiver() {
+                // given
+                Long notificationId = 200L;
+                List<Long> receiverIds = List.of(42L);
+
+                // when
+                outboxService.bulkCreate(notificationId, receiverIds, NotificationType.PAYMENT_CONFIRMED, null);
+
+                // then
+                verify(jdbcTemplate).batchUpdate(anyString(), eq(receiverIds), eq(1), any());
             }
         }
     }
