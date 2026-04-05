@@ -16,6 +16,7 @@ import com.liveklass.notification.domain.notification.NotificationChannel;
 import com.liveklass.notification.domain.notification.NotificationQueryRepository;
 import com.liveklass.notification.domain.notification.NotificationRepository;
 import com.liveklass.notification.domain.notification.NotificationType;
+import com.liveklass.notification.domain.outbox.NotificationOutbox;
 import com.liveklass.notification.domain.outbox.NotificationOutboxRepository;
 import com.liveklass.notification.domain.template.NotificationTemplate;
 import com.liveklass.notification.domain.template.NotificationTemplateRepository;
@@ -171,26 +172,31 @@ class NotificationServiceTest {
     class Describe_markAsRead {
 
         @Nested
-        @DisplayName("존재하는 알림 ID가 주어지면")
-        class Context_with_valid_notification {
+        @DisplayName("존재하는 수신자의 Outbox가 주어지면")
+        class Context_with_valid_outbox {
 
             @Test
-            @DisplayName("알림의 isRead 상태를 true로 변경한다.")
+            @DisplayName("해당 수신자의 isRead 상태를 true로 변경한다.")
             void it_marks_as_read() {
                 // given
-                Notification notification = Notification.builder()
-                    .id(10L)
+                Long notificationId = 10L;
+                Long receiverId = 42L;
+                NotificationOutbox outbox = NotificationOutbox.builder()
+                    .id(1L)
+                    .notificationId(notificationId)
+                    .receiverId(receiverId)
                     .isRead(false)
                     .build();
 
-                when(notificationRepository.findById(10L)).thenReturn(Optional.of(notification));
+                when(outboxRepository.findByNotificationIdAndReceiverId(notificationId, receiverId))
+                    .thenReturn(Optional.of(outbox));
 
                 // when
-                notificationService.markAsRead(10L);
+                notificationService.markAsRead(notificationId, receiverId);
 
                 // then
-                assertThat(notification.getIsRead()).isTrue();
-                assertThat(notification.getReadAt()).isNotNull();
+                assertThat(outbox.getIsRead()).isTrue();
+                assertThat(outbox.getReadAt()).isNotNull();
             }
         }
     }

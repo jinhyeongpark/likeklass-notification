@@ -133,7 +133,7 @@ class OutboxServiceTest {
         }
 
         @Nested
-        @DisplayName("이미 읽음(isRead=true) 상태인 알림인 경우")
+        @DisplayName("이미 읽음(isRead=true) 상태인 Outbox인 경우")
         class Context_already_read {
 
             @Test
@@ -147,12 +147,12 @@ class OutboxServiceTest {
                     .id(outboxId)
                     .notificationId(notificationId)
                     .status(OutboxStatus.INIT)
+                    .isRead(true)
                     .nextRetryAt(LocalDateTime.now().minusMinutes(1))
                     .build();
 
                 Notification notification = Notification.builder()
                     .id(notificationId)
-                    .isRead(true)
                     .channel(NotificationChannel.EMAIL)
                     .build();
 
@@ -188,7 +188,6 @@ class OutboxServiceTest {
 
                 Notification notification = Notification.builder()
                     .id(notificationId)
-                    .isRead(false)
                     .channel(NotificationChannel.EMAIL)
                     .build();
 
@@ -226,7 +225,6 @@ class OutboxServiceTest {
 
                 Notification notification = Notification.builder()
                     .id(notificationId)
-                    .isRead(false)
                     .channel(NotificationChannel.EMAIL)
                     .build();
 
@@ -267,7 +265,6 @@ class OutboxServiceTest {
 
                 Notification notification = Notification.builder()
                     .id(notificationId)
-                    .isRead(false)
                     .channel(NotificationChannel.EMAIL)
                     .build();
 
