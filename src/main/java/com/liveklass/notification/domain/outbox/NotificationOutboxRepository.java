@@ -14,8 +14,6 @@ import org.springframework.data.repository.query.Param;
 
 public interface NotificationOutboxRepository extends JpaRepository<NotificationOutbox, Long> {
 
-    Optional<NotificationOutbox> findFirstByNotificationId(Long notificationId);
-
     Optional<NotificationOutbox> findByNotificationIdAndReceiverId(Long notificationId, Long receiverId);
 
     List<NotificationOutbox> findAllByNotificationId(Long notificationId);

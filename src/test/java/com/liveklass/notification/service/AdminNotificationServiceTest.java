@@ -13,6 +13,7 @@ import com.liveklass.notification.domain.outbox.NotificationOutbox;
 import com.liveklass.notification.domain.outbox.NotificationOutboxQueryRepository;
 import com.liveklass.notification.domain.outbox.NotificationOutboxRepository;
 import com.liveklass.notification.domain.outbox.OutboxStatus;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -41,19 +42,20 @@ class AdminNotificationServiceTest {
     class Describe_retryFailedNotification {
 
         @Nested
-        @DisplayName("Outbox 상태가 FAILED가 아니면")
-        class Context_not_failed_outbox {
+        @DisplayName("FAILED 상태인 Outbox가 하나도 없으면")
+        class Context_no_failed_outbox {
 
             @Test
             @DisplayName("재시도가 불가하므로 예외를 발생시킨다.")
             void it_throws_exception() {
                 // given
                 Long notificationId = 1L;
-                NotificationOutbox outbox = NotificationOutbox.builder()
+                NotificationOutbox completed = NotificationOutbox.builder()
                     .status(OutboxStatus.COMPLETED)
                     .build();
 
-                when(outboxRepository.findFirstByNotificationId(notificationId)).thenReturn(Optional.of(outbox));
+                when(outboxRepository.findAllByNotificationId(notificationId))
+                    .thenReturn(List.of(completed));
 
                 // when & then
                 assertThatThrownBy(() -> adminNotificationService.retryFailedNotification(notificationId))
@@ -63,37 +65,45 @@ class AdminNotificationServiceTest {
         }
 
         @Nested
-        @DisplayName("Outbox 상태가 정상적인 FAILED라면")
-        class Context_with_failed_outbox {
+        @DisplayName("여러 수신자 중 FAILED 상태인 Outbox가 있다면")
+        class Context_with_multiple_failed_outboxes {
 
             @Test
-            @DisplayName("Outbox 속성을 초기화(INIT)하고 Notification을 복구(SENT)한다.")
-            void it_resets_outbox_and_reverts_notification() {
+            @DisplayName("FAILED 상태인 Outbox를 전부 초기화(INIT)하고 Notification을 복구(SENT)한다.")
+            void it_resets_all_failed_outboxes_and_reverts_notification() {
                 // given
                 Long notificationId = 2L;
-                NotificationOutbox outbox = NotificationOutbox.builder()
-                    .status(OutboxStatus.FAILED)
-                    .retryCount(3)
-                    .lastError("Network Error")
-                    .build();
+
+                NotificationOutbox failed1 = NotificationOutbox.builder()
+                    .status(OutboxStatus.FAILED).retryCount(4).lastError("Network Error").build();
+                NotificationOutbox failed2 = NotificationOutbox.builder()
+                    .status(OutboxStatus.FAILED).retryCount(4).lastError("Timeout").build();
+                NotificationOutbox completed = NotificationOutbox.builder()
+                    .status(OutboxStatus.COMPLETED).build();
 
                 Notification notification = Notification.builder()
-                    .id(notificationId)
-                    .status(NotificationStatus.FAILED)
-                    .build();
+                    .id(notificationId).status(NotificationStatus.FAILED).build();
 
-                when(outboxRepository.findFirstByNotificationId(notificationId)).thenReturn(Optional.of(outbox));
-                when(notificationRepository.findById(notificationId)).thenReturn(Optional.of(notification));
+                when(outboxRepository.findAllByNotificationId(notificationId))
+                    .thenReturn(List.of(failed1, failed2, completed));
+                when(notificationRepository.findById(notificationId))
+                    .thenReturn(Optional.of(notification));
 
                 // when
                 adminNotificationService.retryFailedNotification(notificationId);
 
-                // then
-                assertThat(outbox.getStatus()).isEqualTo(OutboxStatus.INIT);
-                assertThat(outbox.getRetryCount()).isEqualTo(0);
-                assertThat(outbox.getLastError()).isNull();
-                assertThat(outbox.getNextRetryAt()).isNotNull();
+                // then — FAILED 수신자 둘 다 초기화
+                assertThat(failed1.getStatus()).isEqualTo(OutboxStatus.INIT);
+                assertThat(failed1.getRetryCount()).isEqualTo(0);
+                assertThat(failed1.getLastError()).isNull();
+                assertThat(failed2.getStatus()).isEqualTo(OutboxStatus.INIT);
+                assertThat(failed2.getRetryCount()).isEqualTo(0);
+                assertThat(failed2.getLastError()).isNull();
 
+                // then — COMPLETED 수신자는 변경 없음
+                assertThat(completed.getStatus()).isEqualTo(OutboxStatus.COMPLETED);
+
+                // then — Notification 복구
                 assertThat(notification.getStatus()).isEqualTo(NotificationStatus.SENT);
             }
         }
