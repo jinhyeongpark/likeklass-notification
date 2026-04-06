@@ -8,38 +8,48 @@ import com.liveklass.notification.domain.notification.NotificationRepository;
 import com.liveklass.notification.domain.notification.NotificationSender;
 import com.liveklass.notification.domain.notification.NotificationType;
 import com.liveklass.notification.domain.outbox.NotificationOutbox;
+import com.liveklass.notification.domain.outbox.NotificationOutboxQueryRepository;
 import com.liveklass.notification.domain.outbox.NotificationOutboxRepository;
 import com.liveklass.notification.domain.outbox.OutboxStatus;
 import jakarta.persistence.LockTimeoutException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Slf4j
 @Service
-@Transactional(readOnly = true)
 public class OutboxService {
 
     private final Map<NotificationChannel, NotificationSender> senderMap;
     private final NotificationOutboxRepository outboxRepository;
     private final NotificationRepository notificationRepository;
     private final JdbcTemplate jdbcTemplate;
+    private final NotificationOutboxQueryRepository queryRepository;
+
+    @Lazy
+    @Autowired
+    private OutboxService self;
 
     public OutboxService(List<NotificationSender> senders,
                          NotificationOutboxRepository outboxRepository,
                          NotificationRepository notificationRepository,
-                         JdbcTemplate jdbcTemplate) {
+                         JdbcTemplate jdbcTemplate,
+                         NotificationOutboxQueryRepository queryRepository) {
         this.senderMap = senders.stream()
             .collect(Collectors.toMap(NotificationSender::getChannel, Function.identity()));
         this.outboxRepository = outboxRepository;
         this.notificationRepository = notificationRepository;
         this.jdbcTemplate = jdbcTemplate;
+        this.queryRepository = queryRepository;
     }
 
     @Transactional
@@ -80,6 +90,91 @@ public class OutboxService {
         });
     }
 
+    /**
+     * 스케줄러용: SKIP LOCKED으로 후보 ID만 조회 후 즉시 커밋.
+     * findPendingTasks의 PESSIMISTIC_WRITE 락은 이 짧은 TX 안에서만 유지된다.
+     */
+    @Transactional
+    public List<Long> findPendingTaskIds(int limit) {
+        return queryRepository.findPendingTasks(limit)
+            .stream().map(NotificationOutbox::getId).toList();
+    }
+
+    /**
+     * 이벤트 리스너 & 스케줄러 공용 진입점.
+     * 트랜잭션 없음 — claimTask / send / recordResult 각각 짧은 독립 TX로 분리.
+     */
+    public void processTask(Long outboxId) {
+        Optional<SendContext> ctxOpt = self.claimTask(outboxId);
+        if (ctxOpt.isEmpty()) return;
+
+        SendContext ctx = ctxOpt.get();
+        try {
+            NotificationSender sender = senderMap.get(ctx.notification().getChannel());
+            if (sender == null) {
+                throw new IllegalStateException("지원하지 않는 발송 채널: " + ctx.notification().getChannel());
+            }
+            sender.send(ctx.notification(), ctx.receiverId());
+            self.recordSuccess(outboxId, ctx.notificationId());
+            log.info("[Outbox] 발송 완료. notificationId={}, channel={}", ctx.notificationId(), ctx.notification().getChannel());
+        } catch (Exception e) {
+            log.error("알림 발송 중 에러 발생: {}", e.getMessage());
+            self.recordFailure(outboxId, ctx.notificationId(), e.getMessage());
+        }
+    }
+
+    /**
+     * 짧은 TX: FOR UPDATE 락 획득 → 상태 검증 → PROCESSING 마킹 → Notification 로드.
+     * 커밋 즉시 락 해제 — 발송(네트워크 호출) 중 DB 커넥션을 점유하지 않는다.
+     */
+    @Transactional
+    public Optional<SendContext> claimTask(Long outboxId) {
+        NotificationOutbox outbox;
+        try {
+            outbox = outboxRepository.findByIdForUpdate(outboxId)
+                .orElseThrow(() -> new CustomException(ErrorCode.OUTBOX_NOT_FOUND));
+        } catch (LockTimeoutException e) {
+            log.info("[Outbox] 락 획득 시간 초과, 스케줄러에게 위임. outboxId={}", outboxId);
+            return Optional.empty();
+        }
+
+        if (outbox.getStatus() != OutboxStatus.INIT) {
+            log.info("[Outbox] 이미 다른 스레드가 작업 중 (status={}), 발송 스킵. outboxId={}", outbox.getStatus(), outboxId);
+            return Optional.empty();
+        }
+        if (outbox.getNextRetryAt().isAfter(LocalDateTime.now())) {
+            log.info("[Outbox] 예약 알림 — 발송 시각 미도래, 스케줄러에게 위임. outboxId={}", outboxId);
+            return Optional.empty();
+        }
+
+        Notification notification = notificationRepository.findById(outbox.getNotificationId())
+            .orElseThrow(() -> new CustomException(ErrorCode.NOTIFICATION_NOT_FOUND));
+
+        outbox.startProcessing();
+
+        return Optional.of(new SendContext(outbox.getNotificationId(), notification, outbox.getReceiverId()));
+    }
+
+    /** 짧은 TX: 발송 성공 기록 */
+    @Transactional
+    public void recordSuccess(Long outboxId, Long notificationId) {
+        outboxRepository.findById(outboxId).ifPresent(NotificationOutbox::complete);
+        notificationRepository.findById(notificationId).ifPresent(Notification::markAsSent);
+    }
+
+    /** 짧은 TX: 발송 실패 기록 (재시도 예약 또는 FAILED/EXPIRED 처리) */
+    @Transactional
+    public void recordFailure(Long outboxId, Long notificationId, String errorMessage) {
+        NotificationOutbox outbox = outboxRepository.findById(outboxId)
+            .orElseThrow(() -> new CustomException(ErrorCode.OUTBOX_NOT_FOUND));
+        outbox.fail(errorMessage, 4);
+
+        if (outbox.getStatus() == OutboxStatus.FAILED || outbox.getStatus() == OutboxStatus.EXPIRED) {
+            notificationRepository.findById(notificationId).ifPresent(Notification::markAsFailed);
+            log.warn("[Outbox] 발송 중지 처리 (상태: {}). outboxId={}", outbox.getStatus(), outboxId);
+        }
+    }
+
     private LocalDateTime calculateExpiredAt(NotificationType type, LocalDateTime scheduledAt) {
         if (type == NotificationType.LECTURE_REMINDER_D1) {
             LocalDateTime base = (scheduledAt != null) ? scheduledAt : LocalDateTime.now();
@@ -88,56 +183,5 @@ public class OutboxService {
         return null;
     }
 
-    @Transactional
-    public void process(Long outboxId) {
-        NotificationOutbox outbox;
-        try {
-            outbox = outboxRepository.findByIdForUpdate(outboxId)
-                .orElseThrow(() -> new CustomException(ErrorCode.OUTBOX_NOT_FOUND));
-        } catch (LockTimeoutException e) {
-            // 3초 안에 락을 획득하지 못한 경우 (스케줄러가 이미 작업 중)
-            // 이벤트 리스너는 조용히 양보하고 스케줄러에게 위임
-            log.info("[Outbox] 락 획득 시간 초과, 스케줄러에게 위임. outboxId={}", outboxId);
-            return;
-        }
-
-        // Current Read(최신 커밋 데이터) 후 상태 검사
-        // 다른 스레드(스케줄러 등)가 이미 PROCESSING 또는 COMPLETED로 바꾼 경우 깔끔하게 이탈
-        if (outbox.getStatus() != OutboxStatus.INIT) {
-            log.info("[Outbox] 이미 다른 스레드가 작업 중 (status={}), 발송 스킵. outboxId={}",
-                outbox.getStatus(), outboxId);
-            return;
-        }
-        // 예약 발송: 아직 발송 시각이 되지 않았으면 스킵 (이벤트 리스너의 즉시 호출 차단)
-        if (outbox.getNextRetryAt().isAfter(LocalDateTime.now())) {
-            log.info("[Outbox] 예약 알림 — 발송 시각 미도래, 스케줄러에게 위임. outboxId={}", outboxId);
-            return;
-        }
-
-        Notification notification = notificationRepository.findById(outbox.getNotificationId())
-            .orElseThrow(() -> new CustomException(ErrorCode.NOTIFICATION_NOT_FOUND));
-
-        try {
-            outbox.startProcessing();
-
-            NotificationSender sender = senderMap.get(notification.getChannel());
-            if (sender == null) {
-                throw new IllegalStateException("지원하지 않는 발송 채널: " + notification.getChannel());
-            }
-            sender.send(notification, outbox.getReceiverId());
-
-            outbox.complete();
-            notification.markAsSent();
-            log.info("[Outbox] 발송 완료. notificationId={}, channel={}", notification.getId(), notification.getChannel());
-
-        } catch (Exception e) {
-            log.error("알림 발송 중 에러 발생: {}", e.getMessage());
-            outbox.fail(e.getMessage(), 4);
-
-            if (outbox.getStatus() == OutboxStatus.FAILED || outbox.getStatus() == OutboxStatus.EXPIRED) {
-                notification.markAsFailed();
-                log.warn("[Outbox] 발송 중지 처리 (상태: {}). notificationId={}", outbox.getStatus(), notification.getId());
-            }
-        }
-    }
+    public record SendContext(Long notificationId, Notification notification, Long receiverId) {}
 }

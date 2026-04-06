@@ -21,7 +21,7 @@ public class NotificationEventListener {
     public void handleNotificationCreated(NotificationCreatedEvent event) {
         log.info("[Event] 커밋 감지! 즉시 발송 처리를 시작합니다. OutboxID: {}", event.outboxId());
         try {
-            outboxService.process(event.outboxId());
+            outboxService.processTask(event.outboxId());
         } catch (Exception e) {
             log.error("[Event] 즉시 발송 실패 (스케줄러에게 위임): {}", e.getMessage());
         }
