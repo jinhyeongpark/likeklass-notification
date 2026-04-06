@@ -25,7 +25,8 @@ public class NotificationOutboxQueryRepository {
             .selectFrom(notificationOutbox)
             .where(
                 statusEq(OutboxStatus.INIT),      // 대기 상태인 것만
-                isTimeToSend()                 // 지금 보내야 할 시간인 것만
+                isTimeToSend(),                   // 지금 보내야 할 시간인 것만
+                isNotExpired()                    // 만료되지 않은 것만
             )
             .orderBy(notificationOutbox.nextRetryAt.asc())
             .limit(limit)
@@ -40,6 +41,12 @@ public class NotificationOutboxQueryRepository {
 
     private BooleanExpression isTimeToSend() {
         return notificationOutbox.nextRetryAt.loe(DateTimeExpression.currentTimestamp(LocalDateTime.class));
+    }
+
+    private BooleanExpression isNotExpired() {
+        DateTimeExpression<LocalDateTime> now = DateTimeExpression.currentTimestamp(LocalDateTime.class);
+        return notificationOutbox.expiredAt.isNull()
+            .or(notificationOutbox.expiredAt.gt(now));
     }
 
     public List<FailedNotificationResponse> findFailedNotifications(int limit) {

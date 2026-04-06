@@ -8,7 +8,7 @@ import lombok.*;
 @Entity
 @Table(name = "notification_outbox",
     indexes = {
-        @Index(name = "idx_outbox_status_retry", columnList = "status, nextRetryAt")
+        @Index(name = "idx_outbox_status_expired_retry", columnList = "status, expiredAt, nextRetryAt")
     },
     uniqueConstraints = {
         @UniqueConstraint(name = "uq_outbox_notification_receiver", columnNames = {"notificationId", "receiverId"})
@@ -47,6 +47,8 @@ public class NotificationOutbox {
 
     private LocalDateTime nextRetryAt;
 
+    private LocalDateTime expiredAt;
+
     private LocalDateTime lockedAt;
 
     @Column(nullable = false)
@@ -75,13 +77,11 @@ public class NotificationOutbox {
             : errorMessage;
         this.lockedAt = null;
 
-        // [TTL 기반 폐기 정책] NotificationType에 정의된 TTL을 초과한 경우 폐기 처리 (EXPIRED)
-        if (this.type != null && this.type.getTtl() != null) {
-            if (this.createdAt != null && this.createdAt.plus(this.type.getTtl()).isBefore(LocalDateTime.now())) {
-                this.status = OutboxStatus.EXPIRED;
-                this.lastError = "[EXPIRED] TTL 초과로 폐기됨: " + this.lastError;
-                return;
-            }
+        // [expiredAt 기반 폐기 정책] 명시적 만료 시각을 초과한 경우 폐기 처리 (EXPIRED)
+        if (this.expiredAt != null && this.expiredAt.isBefore(LocalDateTime.now())) {
+            this.status = OutboxStatus.EXPIRED;
+            this.lastError = "[EXPIRED] 만료 시각 초과로 폐기됨: " + this.lastError;
+            return;
         }
 
         if (this.retryCount < maxRetryCount) {
@@ -97,19 +97,19 @@ public class NotificationOutbox {
     private LocalDateTime calculateNextRetryTime() {
         LocalDateTime now = LocalDateTime.now();
 
-        // 첫 번째 실패는 네트워크 일시 장애일 확률이 높으므로 10초 뒤 즉시 재시도
+        // 공통: 1차 실패는 네트워크 일시 장애일 확률이 높으므로 3초 뒤 즉시 재시도
         if (this.retryCount == 1) {
-            return now.plusSeconds(10);
+            return now.plusSeconds(3);
         }
 
-        // 결제 완료 알림은 30초 단위 선형 증가 (공격적 재시도)
-        if (this.type == NotificationType.PAYMENT_CONFIRMED) {
-            if (this.retryCount == 2) return now.plusSeconds(30); // 2차: 30초
-            return now.plusSeconds(60); // 3차 이상: 60초
+        // D-1 알림: 2차 이후 지수 백오프 (2분, 4분, 8분...)
+        if (this.type == NotificationType.LECTURE_REMINDER_D1) {
+            return now.plusMinutes((long) Math.pow(2, this.retryCount - 1));
         }
 
-        // 일반 알림은 기존 지수 백오프 (2분, 4분, 8분...)
-        return now.plusMinutes((long) Math.pow(2, this.retryCount));
+        // 일반 알림: 2~3차 10초 간격, 3차 실패 시 10분 대기 후 4차(최종) 시도
+        if (this.retryCount == 2 || this.retryCount == 3) return now.plusSeconds(10);
+        return now.plusMinutes(10); // retryCount=4: 4차 최종 시도 전 10분 대기
     }
 
     public void markAsRead() {

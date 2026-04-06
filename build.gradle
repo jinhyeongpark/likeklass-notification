@@ -23,8 +23,7 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 
 	// DB 관련
-	runtimeOnly 'com.h2database:h2'             // 로컬 개발 및 테스트용 (File Mode)
-	runtimeOnly 'com.mysql:mysql-connector-j'
+	runtimeOnly 'com.h2database:h2:2.2.220'     // File Mode 전용
 
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
