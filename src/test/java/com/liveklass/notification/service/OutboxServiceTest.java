@@ -137,8 +137,8 @@ class OutboxServiceTest {
         class Context_already_read {
 
             @Test
-            @DisplayName("발송을 생략하고 Outbox를 즉시 COMPLETED 처리한다.")
-            void it_completes_outbox_without_sending() {
+            @DisplayName("읽음 여부와 무관하게 발송하고 COMPLETED 처리한다.")
+            void it_sends_and_completes_regardless_of_read_status() {
                 // given
                 Long outboxId = 2L;
                 Long notificationId = 10L;
@@ -163,7 +163,7 @@ class OutboxServiceTest {
                 outboxService.process(outboxId);
 
                 // then
-                verify(emailSender, never()).send(any(), any());
+                verify(emailSender).send(eq(notification), any());
                 assertThat(outbox.getStatus()).isEqualTo(OutboxStatus.COMPLETED);
             }
         }
@@ -243,7 +243,7 @@ class OutboxServiceTest {
         }
 
         @Nested
-        @DisplayName("발송 실패 시 TTL이 만료된 경우")
+        @DisplayName("발송 실패 시 expiredAt이 경과한 경우")
         class Context_expired {
 
             @Test
@@ -253,13 +253,12 @@ class OutboxServiceTest {
                 Long outboxId = 5L;
                 Long notificationId = 40L;
 
-                // 11분 전 생성 (결제 확정 TTL인 10분 초과)
                 NotificationOutbox outbox = NotificationOutbox.builder()
                     .id(outboxId)
                     .notificationId(notificationId)
                     .type(NotificationType.PAYMENT_CONFIRMED)
                     .status(OutboxStatus.INIT)
-                    .createdAt(LocalDateTime.now().minusMinutes(11))
+                    .expiredAt(LocalDateTime.now().minusMinutes(1))
                     .nextRetryAt(LocalDateTime.now().minusMinutes(1))
                     .build();
 
