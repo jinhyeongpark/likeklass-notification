@@ -23,14 +23,14 @@ public class NotificationProcessor {
     private final NotificationOutboxRepository outboxRepository;
     private final NotificationIdempotencyRepository idempotencyRepository;
 
-    @Scheduled(fixedDelay = 10000)
+    @Scheduled(fixedDelay = 3000)
     @Transactional
     public void process() {
-        int maxLoopCount = 5; // 10초에 최대 50 * 5 = 250건
+        int maxLoopCount = 5; // 3초에 최대 200 * 5 = 1000건
         int processedTotal = 0;
 
         while (maxLoopCount-- > 0) {
-            List<NotificationOutbox> tasks = queryRepository.findPendingTasks(50);
+            List<NotificationOutbox> tasks = queryRepository.findPendingTasks(200);
 
             if (tasks.isEmpty()) {
                 break;
@@ -45,12 +45,12 @@ public class NotificationProcessor {
                     log.error("Worker 작업 중 예기치 못한 에러 발생: {}", e.getMessage());
                 }
             }
-            
+
             processedTotal += tasks.size();
         }
 
         if (processedTotal > 0) {
-            log.info("==== [Worker] 이번 10초 주기 동안 총 {}건의 밀린 알림을 해소했습니다! ====", processedTotal);
+            log.info("==== [Worker] 이번 3초 주기 동안 총 {}건의 밀린 알림을 해소했습니다! ====", processedTotal);
         }
     }
 
