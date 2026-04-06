@@ -1,8 +1,6 @@
 package com.liveklass.notification.processor;
 
 import com.liveklass.notification.domain.idempotency.NotificationIdempotencyRepository;
-import com.liveklass.notification.domain.outbox.NotificationOutbox;
-import com.liveklass.notification.domain.outbox.NotificationOutboxQueryRepository;
 import com.liveklass.notification.domain.outbox.NotificationOutboxRepository;
 import com.liveklass.notification.service.OutboxService;
 import java.time.LocalDateTime;
@@ -19,34 +17,32 @@ import org.springframework.transaction.annotation.Transactional;
 public class NotificationProcessor {
 
     private final OutboxService outboxService;
-    private final NotificationOutboxQueryRepository queryRepository;
     private final NotificationOutboxRepository outboxRepository;
     private final NotificationIdempotencyRepository idempotencyRepository;
 
     @Scheduled(fixedDelay = 3000)
-    @Transactional
     public void process() {
         int maxLoopCount = 5; // 3초에 최대 200 * 5 = 1000건
         int processedTotal = 0;
 
         while (maxLoopCount-- > 0) {
-            List<NotificationOutbox> tasks = queryRepository.findPendingTasks(200);
+            List<Long> taskIds = outboxService.findPendingTaskIds(200);
 
-            if (tasks.isEmpty()) {
+            if (taskIds.isEmpty()) {
                 break;
             }
 
-            log.info(">>>> [Worker] {}건의 알림을 낚아챘습니다. (잔여 루프 횟수: {})", tasks.size(), maxLoopCount);
+            log.info(">>>> [Worker] {}건의 알림을 낚아챘습니다. (잔여 루프 횟수: {})", taskIds.size(), maxLoopCount);
 
-            for (NotificationOutbox task : tasks) {
+            for (Long taskId : taskIds) {
                 try {
-                    outboxService.process(task.getId());
+                    outboxService.processTask(taskId);
                 } catch (Exception e) {
                     log.error("Worker 작업 중 예기치 못한 에러 발생: {}", e.getMessage());
                 }
             }
 
-            processedTotal += tasks.size();
+            processedTotal += taskIds.size();
         }
 
         if (processedTotal > 0) {
