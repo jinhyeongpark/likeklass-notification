@@ -107,9 +107,9 @@ public class NotificationOutbox {
             return now.plusMinutes((long) Math.pow(2, this.retryCount - 1));
         }
 
-        // 일반 알림: 2~3차 10초 간격, 3차 실패 시 10분 대기 후 최종 시도
-        if (this.retryCount == 2) return now.plusSeconds(10);
-        return now.plusMinutes(10);
+        // 일반 알림: 2~3차 10초 간격, 3차 실패 시 10분 대기 후 4차(최종) 시도
+        if (this.retryCount == 2 || this.retryCount == 3) return now.plusSeconds(10);
+        return now.plusMinutes(10); // retryCount=4: 4차 최종 시도 전 10분 대기
     }
 
     public void markAsRead() {
