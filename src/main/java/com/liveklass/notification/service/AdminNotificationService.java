@@ -31,23 +31,29 @@ public class AdminNotificationService {
 
     @Transactional
     public void retryFailedNotification(Long notificationId) {
-        NotificationOutbox outbox = outboxRepository.findFirstByNotificationId(notificationId)
-            .orElseThrow(() -> new CustomException(ErrorCode.OUTBOX_NOT_FOUND));
+        List<NotificationOutbox> outboxes = outboxRepository.findAllByNotificationId(notificationId);
 
-        if (outbox.getStatus() != OutboxStatus.FAILED) {
-            throw new CustomException(ErrorCode.INVALID_INPUT_VALUE); // 재시도는 FAILED 상태만 가능 
+        if (outboxes.isEmpty()) {
+            throw new CustomException(ErrorCode.OUTBOX_NOT_FOUND);
         }
 
-        Notification notification = notificationRepository.findById(notificationId)
-            .orElseThrow(() -> new CustomException(ErrorCode.NOTIFICATION_NOT_FOUND));
+        List<NotificationOutbox> failedOutboxes = outboxes.stream()
+            .filter(o -> o.getStatus() == OutboxStatus.FAILED)
+            .toList();
 
-        // 1. 수동 재시도: 기존 재시도 횟수 무시하고 완전 초기화
-        outbox.manualRetry();
+        if (failedOutboxes.isEmpty()) {
+            throw new CustomException(ErrorCode.INVALID_INPUT_VALUE); // 재시도는 FAILED 상태만 가능
+        }
+
+        // 1. FAILED 수신자 전체 초기화
+        failedOutboxes.forEach(NotificationOutbox::manualRetry);
 
         // 2. Notification 상태도 SENT로 다시 전환
+        Notification notification = notificationRepository.findById(notificationId)
+            .orElseThrow(() -> new CustomException(ErrorCode.NOTIFICATION_NOT_FOUND));
         notification.revertToSent();
 
-        log.info("[Admin] 알림 수동 재전송 트리거 완료. notificationId={}, receiverId={}",
-            notificationId, outbox.getReceiverId());
+        log.info("[Admin] 알림 수동 재전송 트리거 완료. notificationId={}, failedCount={}",
+            notificationId, failedOutboxes.size());
     }
 }
