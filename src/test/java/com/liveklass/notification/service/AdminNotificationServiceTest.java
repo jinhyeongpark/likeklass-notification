@@ -2,12 +2,17 @@ package com.liveklass.notification.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.liveklass.notification.api.dto.FailedNotificationResponse;
 import com.liveklass.notification.common.exception.CustomException;
 import com.liveklass.notification.common.exception.ErrorCode;
 import com.liveklass.notification.domain.notification.Notification;
+import com.liveklass.notification.domain.notification.NotificationChannel;
 import com.liveklass.notification.domain.notification.NotificationRepository;
+import com.liveklass.notification.domain.notification.NotificationType;
+import java.util.List;
 import com.liveklass.notification.domain.notification.NotificationStatus;
 import com.liveklass.notification.domain.outbox.NotificationOutbox;
 import com.liveklass.notification.domain.outbox.NotificationOutboxQueryRepository;
@@ -38,8 +43,55 @@ class AdminNotificationServiceTest {
     private AdminNotificationService adminNotificationService;
 
     @Nested
+    @DisplayName("getFailedNotifications 메서드는")
+    class Describe_getFailedNotifications {
+
+        @Nested
+        @DisplayName("limit이 주어지면")
+        class Context_with_limit {
+
+            @Test
+            @DisplayName("queryRepository에 위임하여 실패 알림 목록을 반환한다.")
+            void it_delegates_to_query_repository() {
+                // given
+                FailedNotificationResponse response = new FailedNotificationResponse(
+                    1L, 42L, NotificationType.PAYMENT_CONFIRMED, NotificationChannel.EMAIL,
+                    "결제 완료", "Timeout", null
+                );
+                when(outboxQueryRepository.findFailedNotifications(10)).thenReturn(List.of(response));
+
+                // when
+                List<FailedNotificationResponse> result = adminNotificationService.getFailedNotifications(10);
+
+                // then
+                assertThat(result).hasSize(1);
+                assertThat(result.get(0).notificationId()).isEqualTo(1L);
+                verify(outboxQueryRepository).findFailedNotifications(10);
+            }
+        }
+    }
+
+    @Nested
     @DisplayName("retryFailedNotification 메서드는")
     class Describe_retryFailedNotification {
+
+        @Nested
+        @DisplayName("notificationId에 해당하는 Outbox가 없으면")
+        class Context_with_outbox_list_empty {
+
+            @Test
+            @DisplayName("OUTBOX_NOT_FOUND 예외를 발생시킨다.")
+            void it_throws_outbox_not_found() {
+                // given
+                Long notificationId = 999L;
+                when(outboxRepository.findAllByNotificationId(notificationId)).thenReturn(List.of());
+
+                // when & then
+                assertThatThrownBy(() -> adminNotificationService.retryFailedNotification(notificationId))
+                    .isInstanceOf(CustomException.class)
+                    .hasMessageContaining(ErrorCode.OUTBOX_NOT_FOUND.getMessage());
+            }
+        }
 
         @Nested
         @DisplayName("FAILED 상태인 Outbox가 하나도 없으면")
