@@ -45,6 +45,7 @@ public class OutboxService {
     @Transactional
     public Long create(Long notificationId, Long receiverId, NotificationType type, LocalDateTime scheduledAt) {
         LocalDateTime nextRetryAt = (scheduledAt != null) ? scheduledAt : LocalDateTime.now();
+        LocalDateTime expiredAt = calculateExpiredAt(type, scheduledAt);
 
         NotificationOutbox outbox = NotificationOutbox.builder()
             .notificationId(notificationId)
@@ -52,6 +53,7 @@ public class OutboxService {
             .type(type)
             .status(OutboxStatus.INIT)
             .nextRetryAt(nextRetryAt)
+            .expiredAt(expiredAt)
             .build();
         outboxRepository.save(outbox);
         return outbox.getId();
@@ -60,11 +62,12 @@ public class OutboxService {
     @Transactional
     public void bulkCreate(Long notificationId, List<Long> receiverIds, NotificationType type, LocalDateTime scheduledAt) {
         LocalDateTime nextRetryAt = (scheduledAt != null) ? scheduledAt : LocalDateTime.now();
+        LocalDateTime expiredAt = calculateExpiredAt(type, scheduledAt);
         LocalDateTime now = LocalDateTime.now();
 
         String sql = """
-            INSERT INTO notification_outbox (notification_id, receiver_id, type, status, retry_count, is_read, next_retry_at, created_at)
-            VALUES (?, ?, ?, 'INIT', 0, 0, ?, ?)
+            INSERT INTO notification_outbox (notification_id, receiver_id, type, status, retry_count, is_read, next_retry_at, expired_at, created_at)
+            VALUES (?, ?, ?, 'INIT', 0, 0, ?, ?, ?)
             """;
 
         jdbcTemplate.batchUpdate(sql, receiverIds, receiverIds.size(), (ps, receiverId) -> {
@@ -72,8 +75,17 @@ public class OutboxService {
             ps.setLong(2, receiverId);
             ps.setString(3, type.name());
             ps.setObject(4, nextRetryAt);
-            ps.setObject(5, now);
+            ps.setObject(5, expiredAt);
+            ps.setObject(6, now);
         });
+    }
+
+    private LocalDateTime calculateExpiredAt(NotificationType type, LocalDateTime scheduledAt) {
+        if (type == NotificationType.LECTURE_REMINDER_D1) {
+            LocalDateTime base = (scheduledAt != null) ? scheduledAt : LocalDateTime.now();
+            return base.toLocalDate().plusDays(1).atStartOfDay();
+        }
+        return null;
     }
 
     @Transactional
@@ -108,13 +120,6 @@ public class OutboxService {
         try {
             outbox.startProcessing();
 
-            // 읽음 시 발송 생략 정책
-            if (Boolean.TRUE.equals(outbox.getIsRead())) {
-                outbox.complete();
-                log.info("[Outbox] 이미 읽은 알림이므로 발송 스킵. notificationId={}", notification.getId());
-                return;
-            }
-
             NotificationSender sender = senderMap.get(notification.getChannel());
             if (sender == null) {
                 throw new IllegalStateException("지원하지 않는 발송 채널: " + notification.getChannel());
@@ -127,7 +132,7 @@ public class OutboxService {
 
         } catch (Exception e) {
             log.error("알림 발송 중 에러 발생: {}", e.getMessage());
-            outbox.fail(e.getMessage(), 3);
+            outbox.fail(e.getMessage(), 4);
 
             if (outbox.getStatus() == OutboxStatus.FAILED || outbox.getStatus() == OutboxStatus.EXPIRED) {
                 notification.markAsFailed();
