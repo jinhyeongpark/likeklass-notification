@@ -1,6 +1,7 @@
 package com.liveklass.notification.infrastructure.config;
 
 import java.util.concurrent.Executor;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.lang.NonNull;
 import org.springframework.scheduling.annotation.AsyncConfigurer;
@@ -11,6 +12,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 @EnableAsync
 public class AsyncConfig implements AsyncConfigurer {
 
+    @Bean("taskExecutor")
     @Override
     @NonNull
     public Executor getAsyncExecutor() {
