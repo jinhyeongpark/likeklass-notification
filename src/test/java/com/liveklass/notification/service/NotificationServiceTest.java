@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -260,8 +261,8 @@ class NotificationServiceTest {
                     "bulk-event-001", null, null
                 );
 
-                when(idempotencyRepository.findByIdempotencyKeyAndExpiresAtAfter(any(), any()))
-                    .thenReturn(Optional.empty());
+                when(idempotencyRepository.findAllByIdempotencyKeyInAndExpiresAtAfter(any(), any()))
+                    .thenReturn(List.of());
                 doAnswer(inv -> {
                     Notification n = inv.getArgument(0);
                     ReflectionTestUtils.setField(n, "id", 42L);
@@ -299,11 +300,13 @@ class NotificationServiceTest {
                     "PAYMENT_CONFIRMED:1:bulk-event-002", 10L, LocalDateTime.now().plusHours(1)
                 );
 
-                when(idempotencyRepository.findByIdempotencyKeyAndExpiresAtAfter(any(), any()))
-                    .thenAnswer(inv -> {
-                        String key = inv.getArgument(0);
-                        return key.contains(":1:") ? Optional.of(duplicate) : Optional.empty();
-                    });
+                when(idempotencyRepository.findAllByIdempotencyKeyInAndExpiresAtAfter(any(), any()))
+                    .thenReturn(List.of(duplicate));
+                doAnswer(inv -> {
+                    Notification n = inv.getArgument(0);
+                    ReflectionTestUtils.setField(n, "id", 43L);
+                    return null;
+                }).when(notificationRepository).save(any(Notification.class));
 
                 // when
                 BulkNotificationResponse response = notificationService.requestNotificationsBulk(request);
@@ -330,9 +333,10 @@ class NotificationServiceTest {
                     "bulk-event-003", null, null
                 );
 
-                when(idempotencyRepository.findByIdempotencyKeyAndExpiresAtAfter(any(), any()))
-                    .thenReturn(Optional.of(
-                        NotificationIdempotency.of("any-key", 99L, LocalDateTime.now().plusHours(1))
+                when(idempotencyRepository.findAllByIdempotencyKeyInAndExpiresAtAfter(any(), any()))
+                    .thenReturn(List.of(
+                        NotificationIdempotency.of("PAYMENT_CONFIRMED:1:bulk-event-003", 99L, LocalDateTime.now().plusHours(1)),
+                        NotificationIdempotency.of("PAYMENT_CONFIRMED:2:bulk-event-003", 99L, LocalDateTime.now().plusHours(1))
                     ));
 
                 // when
@@ -344,6 +348,40 @@ class NotificationServiceTest {
                 assertThat(response.accepted()).isEqualTo(0);
                 assertThat(response.skipped()).isEqualTo(2);
                 verify(notificationRepository, never()).save(any());
+            }
+        }
+
+        @Nested
+        @DisplayName("벌크 멱등성 체크를 수행하면")
+        class Context_with_bulk_idempotency_check {
+
+            @Test
+            @DisplayName("개별 조회 대신 IN 절 기반 리스트 조회 메서드를 한 번만 호출한다.")
+            void it_calls_bulk_idempotency_query_once() {
+                // given
+                BulkNotificationRequestDto request = new BulkNotificationRequestDto(
+                    List.of(1L, 2L, 3L),
+                    NotificationType.PAYMENT_CONFIRMED, NotificationChannel.EMAIL,
+                    "결제 완료", "결제가 완료되었습니다.",
+                    "bulk-event-verify", null, null
+                );
+
+                when(idempotencyRepository.findAllByIdempotencyKeyInAndExpiresAtAfter(any(), any()))
+                    .thenReturn(List.of());
+                doAnswer(inv -> {
+                    Notification n = inv.getArgument(0);
+                    ReflectionTestUtils.setField(n, "id", 44L);
+                    return null;
+                }).when(notificationRepository).save(any(Notification.class));
+
+                // when
+                notificationService.requestNotificationsBulk(request);
+
+                // then
+                verify(idempotencyRepository, times(1))
+                    .findAllByIdempotencyKeyInAndExpiresAtAfter(any(), any());
+                verify(idempotencyRepository, never())
+                    .findByIdempotencyKeyAndExpiresAtAfter(any(), any());
             }
         }
     }

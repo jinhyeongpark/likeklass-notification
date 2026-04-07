@@ -19,9 +19,12 @@ import com.liveklass.notification.domain.outbox.NotificationOutboxRepository;
 import com.liveklass.notification.domain.template.NotificationTemplate;
 import com.liveklass.notification.domain.template.NotificationTemplateRepository;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -139,16 +142,28 @@ public class NotificationService {
             throw new CustomException(ErrorCode.NOTIFICATION_CONTENT_REQUIRED);
         }
 
-        // 수신자별 멱등성 체크
-        List<Long> acceptedReceiverIds = new ArrayList<>();
+        // 모든 수신자에 대한 멱등성 키 미리 생성 (순서 보장을 위해 LinkedHashMap 사용)
+        Map<Long, String> receiverIdToKey = new LinkedHashMap<>();
         for (Long receiverId : request.receiverIds()) {
-            String key = buildKey(request.type().name(), receiverId, request.eventId());
-            if (idempotencyRepository.findByIdempotencyKeyAndExpiresAtAfter(key, now).isPresent()) {
-                log.info(">>> [Idempotency] 벌크 요청 중 중복 수신자 필터링. receiverId={}", receiverId);
-                continue;
-            }
-            acceptedReceiverIds.add(receiverId);
+            receiverIdToKey.put(receiverId, buildKey(request.type().name(), receiverId, request.eventId()));
         }
+
+        // IN 절 단일 쿼리로 이미 유효한 멱등성 키를 일괄 조회
+        Set<String> activeKeys = idempotencyRepository
+            .findAllByIdempotencyKeyInAndExpiresAtAfter(receiverIdToKey.values(), now)
+            .stream()
+            .map(NotificationIdempotency::getIdempotencyKey)
+            .collect(Collectors.toSet());
+
+        if (!activeKeys.isEmpty()) {
+            log.info(">>> [Idempotency] 벌크 요청 중 중복 수신자 {}건 필터링.", activeKeys.size());
+        }
+
+        // 중복 키를 가진 수신자 제외
+        List<Long> acceptedReceiverIds = receiverIdToKey.entrySet().stream()
+            .filter(e -> !activeKeys.contains(e.getValue()))
+            .map(Map.Entry::getKey)
+            .toList();
 
         int skipped = total - acceptedReceiverIds.size();
 
@@ -170,10 +185,10 @@ public class NotificationService {
             .build();
         notificationRepository.save(notification);
 
-        // 수신자별 멱등성 레코드 저장
+        // 수신자별 멱등성 레코드 저장 (만료 키 삭제 후 신규 삽입)
         List<NotificationIdempotency> idempotencyRecords = acceptedReceiverIds.stream()
             .map(receiverId -> {
-                String key = buildKey(request.type().name(), receiverId, request.eventId());
+                String key = receiverIdToKey.get(receiverId);
                 idempotencyRepository.deleteByIdempotencyKey(key);
                 return NotificationIdempotency.of(key, notification.getId(), now.plusHours(IDEMPOTENCY_TTL_HOURS));
             })
